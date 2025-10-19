@@ -16,3 +16,5 @@ trace.json
 AGENTS.md
 
 .cursor/
+
+.claude/
