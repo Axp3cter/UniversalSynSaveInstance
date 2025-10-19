@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /B /S *.md)",
+      "Bash(where /r . *.txt)",
+      "Bash(dir /B \"C:\\Users\\Aspecter\\Documents\\GitHub\\UniversalSynSaveInstance\\src\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -121,18 +121,54 @@ The project has **4 build configurations**:
 - **Debug**: Retains lines, minimal processing
 - **Production**: Aggressive optimization (removes comments, unused code, types, etc.)
 
+## Executor API Standard: sUNC Compliance
+
+**CRITICAL**: This project **exclusively** uses the **sUNC API standard** (https://docs.sunc.su/).
+
+### sUNC Compliance Requirements
+
+1. **No function aliases** - Only exact sUNC function names are used
+2. **No alternative naming** - No fallback to legacy or executor-specific names
+3. **Strict naming convention** - All function names match sUNC specification exactly
+4. **Organized by category**:
+   - **Reflection**: `gethiddenproperty`, `sethiddenproperty`, `setscriptable`, `setthreadidentity`, `getthreadidentity`
+   - **Scripts**: `getscriptbytecode`, `getscripthash`, `getsenv`, `loadstring`, etc.
+   - **Instances**: `getinstances`, `getnilinstances`, `cloneref`, `gethui`, etc.
+   - **Cryptography**: `crypt.base64encode`, `crypt.base64decode` (in `crypt` table)
+   - **Debug**: `debug.getconstants`, `debug.getupvalues`, etc. (in `debug` table)
+   - **Closures**: `hookfunction`, `clonefunction`, `iscclosure`, etc.
+   - **Signals**: `getconnections`, `firesignal`
+   - **Miscellaneous**: `identifyexecutor`, `request`
+
+### Why sUNC Standard?
+
+- **Consistency**: All sUNC-compliant executors use identical function names
+- **No detection loops**: No need to check multiple aliases (e.g., `gethiddenprop`, `GetHiddenProperty`, etc.)
+- **Clear specification**: Official documentation at https://docs.sunc.su/
+- **Simplicity**: Single source of truth for API naming
+
+### Executor Module (`src/utilities/executor.luau`)
+
+The executor utility provides:
+- Direct access to sUNC API via `Executor.api.*`
+- Safe wrappers with error handling
+- Validation of function availability and correctness
+- Fallback implementations (UGCValidationService, external libraries) when sUNC functions unavailable
+
 ## Development Workflow
 
 ### 1. **Initial Setup** (Already Complete)
 - All toolchain dependencies configured via `rokit.toml`
 - Build pipeline fully functional
 - Package management ready
+- sUNC API wrapper implemented in `src/utilities/executor.luau`
 
 ### 2. **Core Development** (Current Phase)
 - Implement main functionality in `src/init.luau`
 - Define types in `src/types.luau`
 - Create feature modules in `src/modules/`
 - Add utility functions in `src/utilities/`
+- **Use sUNC API exclusively** via executor module
 
 ### 3. **Build & Test** (Ready to Use)
 - Run builds with `lune run pipeline/build.luau pipeline/.pcmp.json`
