@@ -1,0 +1,14 @@
+{
+  "name": "cascade",
+  "tree": {
+    "$className": "DataModel",
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "generated/test.client.luau"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,44 @@
+Recommended Packages
+rbx-reader
+
+Parses both .rbxl (binary) and .rbxm files.
+
+Written in TypeScript, works in Node.js and can be adapted for browser usage.
+
+Example:
+
+js
+const fs = require("node:fs");
+const reader = require("rbx-reader");
+const buf = fs.readFileSync("./path/to/file.rbxl");
+const result = reader.parseBuffer(buf);
+This is suitable for binary place files and is actively maintained.
+
+rbxlx (npm)
+
+Designed for parsing .rbxlx (XML) files.
+
+Converts the file into a user-friendly tree of objects, making inspection and analysis easy.
+
+Example usage:
+
+js
+const rbxlx = require("rbxlx");
+const fs = require("fs");
+rbxlx.parse(fs.readFileSync("test.rbxlx"))
+  .then(tree => {
+    const parts = tree.getDescendants().filter(obj => obj.class === "Part");
+    // display or analyze parts
+  });
+Works well for browser and Node.js environments, particularly for RBXLX format.
+
+rbxBinaryParser
+
+For browser-based or server-side parsing of .rbxl (binary) and .rbxm files as ArrayBuffers.
+
+Returns a decoded object containing the full Roblox instance structure.
+
+Usage Notes
+For RBXL (binary): Use rbx-reader or rbxBinaryParser as these can decode Roblox’s binary file structure into objects for analysis.
+
+For RBXLX (XML): Use rbxlx npm package, as it is specialized for readable XML parsing and structural breakdown.

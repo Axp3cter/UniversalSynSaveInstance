@@ -1,0 +1,94 @@
+---
+alwaysApply: true
+---
+
+# USSI Rewrite - Context Document
+
+## Reference Materials Location
+**`.cursor/data/` contains comprehensive reference implementations:**
+
+### Parsing Libraries
+- **`rbx-reader-master/`**: TypeScript parser with attribute support, WASM integration
+  - `src/index.ts`: Main parsing interface with format detection
+  - `src/BinaryParser.ts`: Chunk-based binary parsing (META, SSTR, INST, PROP, PRNT, END)
+  - `src/XmlParser.ts`: XML format parsing with DOM manipulation
+  - `src/ByteReader.ts`: Binary data reading utilities
+  - `src/Instance.ts`: TypeScript interfaces for Roblox data types
+  - `src/attributes-parser/`: WASM-based attribute parsing
+
+- **`rbxBinaryParser-master/`**: JavaScript binary parser with LZ4 decompression
+  - `src/index.js`: Main decoding function with chunk processing
+  - `src/ByteReader.js`: Binary reading utilities
+  - `src/ChunkReader.js`: LZ4 decompression and chunk handling
+  - `src/BinaryTypeReader.js`: Property value reading and type conversion
+
+- **`rbxfile-master/`**: Complete Go implementation (reference for data structures)
+  - `rbxl/`: Binary format implementation
+  - `rbxlx/`: XML format implementation
+  - `values.go`: All Roblox data type definitions
+
+- **`spec-master/`**: Official Roblox format specifications
+  - `formats/rbxl.md`: Binary format specification
+  - `formats/rbxlx.md`: XML format specification
+  - `properties/`: Property type specifications
+
+### UI Framework Reference
+- **`Cascade-main/`**: Complete Roblox Luau UI framework
+  - `src/components/`: UI component implementations (Window, Button, TextField, etc.)
+  - `src/themes/`: Theming system (Light/Dark modes)
+  - `src/modules/`: Core modules (creator, binder, services)
+  - `src/structures/`: Reusable UI structures (Titlebar, TextField)
+  - `src/types.luau`: Comprehensive type definitions
+
+### API Standardization
+- **`docs.sunc.su-main/`**: sUNC API documentation
+  - Complete function naming standards
+  - Environment detection patterns
+  - Compatibility testing framework
+
+## Technology Stack (Latest 2025)
+- **Runtime**: Roblox Luau scripting environment
+- **Language**: Luau with strict typing
+- **UI Framework**: Cascade UI with Fusion reactive state management
+- **Async**: Promise library for async operations
+- **Utilities**: TableUtil for data manipulation, rbxmSuite for package management
+- **Parsing**: Custom Luau implementations based on reference parsers
+
+## File Format Support
+- **.rbxl**: Binary format with LZ4 compression, chunk-based structure
+- **.rbxlx**: XML format with Base64 encoding, DOM-based parsing
+- **.rbxm/.rbxmx**: Model files (same formats as place files)
+
+## Key Implementation Patterns
+1. **Format Detection**: Auto-detect binary vs XML based on file signature
+2. **Binary Parsing**: Chunk-based approach with META, SSTR, INST, PROP, PRNT, END
+3. **XML Parsing**: DOM traversal with Base64 decoding and UUID references
+4. **Type Safety**: Comprehensive Luau type definitions for all Roblox types
+5. **Error Handling**: Graceful failure with detailed error messages
+6. **UI Architecture**: Component-based with reactive state management
+
+## Current State Assessment
+- **Strengths**: Rich reference materials, clear specifications, modern UI framework
+- **Weaknesses**: No existing codebase, complex binary format requirements
+- **Risks**: Binary format complexity, performance with large files, Roblox API changes
+
+## Constraints and Dependencies
+- **API Compatibility**: Must use only sUNC API functions
+- **Dual Mode Support**: Full UI mode + headless logging-only mode
+- **File Size**: Handle files up to 50MB efficiently
+- **Performance**: Parse 1MB files in <1s, render 10,000+ node trees
+- **Security**: Input validation, no code injection vulnerabilities
+
+## Information Gaps
+- Specific performance benchmarks for large files in Roblox environment
+- Real-world file format variations and edge cases
+- User experience requirements for editing workflows
+- sUNC API function availability in current Roblox version
+
+## Development Approach
+- Build from scratch using references for patterns and data structures
+- Implement comprehensive error handling and edge case testing
+- Use latest Luau patterns and Roblox best practices
+- Apply aggressive code quality and modular architecture principles
+- Extensive documentation and commenting throughout
+

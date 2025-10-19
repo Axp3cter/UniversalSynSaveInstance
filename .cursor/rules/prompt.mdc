@@ -1,0 +1,186 @@
+---
+alwaysApply: true
+---
+
+# Project Execution Framework
+
+## PROMPT 0: Initial Acknowledgment
+
+READ AND ACKNOWLEDGE ONLY - DO NOT PROCEED TO PROMPT 1 UNTIL INSTRUCTED
+
+### Project Goal/Requirement
+
+[INPUT SOMETHING HERE]
+
+### Your Task
+
+1. Confirm you have read and understood the complete requirement
+2. Provide a brief summary of what you understood the requirement to be
+3. Acknowledge that you are ready to proceed to Prompt 1 when instructed
+
+---
+
+## PROMPT 1: Project Analysis & Context Setup
+
+**Mission:** Analyze all project materials and create comprehensive context for effective AI-assisted development.
+
+### Deliverables
+
+**Project Analysis Summary** (2-3 paragraphs) This is if there is code or anything currently there, for a fresh start make it clear there is nothing and dont set any standards yet, context is pure context
+
+- Directory structure and file organization
+- Technology stack and dependencies
+- Code patterns and architecture
+- Integration points and current state
+
+**Context Document** (save to `.cursor/rules/context.mdc` and dont remove the always apply header) This is only if there is code/info/structure there aldready or from prompt 0, u can put derived context here. also avoid writing in a manner or putting stuff that will change the second the ai starts coding the goal. keep context with only useful info that can save the ai searching like where things are and more. context is pure context
+
+- Where and what you can find
+- Technology overview
+- Current state assessment (strengths, weaknesses, risks)
+- Constraints and dependencies
+- Information gaps
+- Complete project picture for planning phase
+
+---
+
+## PROMPT 2: Strategic Questions & Gap Analysis
+
+**Mission:** Formulate 25 strategic questions based on the project analysis from Prompt 1, then answer them using the documented context and available project information.
+
+### Question Categories (25 total)
+
+**Functional Requirements (4-5):** What features, problems being solved, core capabilities?
+
+**Technical Architecture (4-5):** System design, key components, patterns and conventions?
+
+**Quality & Performance (3-4):** Performance requirements, test expectations, security needs?
+
+**Integration & Dependencies (3-4):** External systems, integration points, data flows?
+
+**Constraints & Resources (3-4):** Technical limitations, organizational constraints?
+
+**Success Criteria (2-3):** How success is defined, what metrics matter?
+
+**Risks & Technical Debt (2-3):** Known issues, architectural risks, priorities?
+
+### Requirements
+
+- Ground all questions in the project materials analyzed in Prompt 1
+- Answer only from project materials, code patterns, logical inference, and industry standards
+- Reference specific evidence from project files and documentation
+- Flag information gaps clearly if unanswerable
+- State assumptions made due to missing information
+
+### Deliverable
+
+Organized list of 25 questions with detailed answers, showing interconnections and grounded in the Prompt 1 analysis.
+
+---
+
+## PROMPT 3: Execution Plan & Todo List
+
+**Mission:** Convert strategic analysis and also read aleast 25 files than make a minimum of 50 actionable todos organized by phase and priority.
+
+### Execution Phases (in each phase, there is sub-phases and each sub-phase and steps/todos)
+
+1. **Foundation** - Architecture, tooling, environments, documentation
+2. **Core Development** - Primary features and functionality
+3. **Integration & Quality** - Component integration, testing, refinement
+4. **Deployment & Operations** - Production release, monitoring, support
+
+### Todo Structure
+
+Each todo must include:
+
+- **ID:** Unique identifier (TASK-001, etc.)
+- **Title:** Clear, actionable task name
+- **Description:** 2-3 sentences explaining what and why
+- **Category:** Architecture, Implementation, Testing, Documentation, DevOps, Security
+- **Phase:** One of the four phases above
+- **Priority:** Critical, High, Medium, Low
+- **Dependencies:** Prerequisite todos
+- **Success Criteria:** How to know it's complete and done well
+- **Related Questions:** Which Prompt 2 questions it addresses
+
+### Additional Deliverables
+
+- Consult diverse sources. Consult multiple reference sources. Test thoroughly before integration. For any file modification, read a minimum of 3 reference files in full. For new file creation, read a minimum of 5 reference files in full before implementation.
+
+- Executive summary (goals, approach, phases)
+- Execution narrative (2-3 pages)
+- Cross-cutting rules (code quality, testing standards, security requirements)
+- Success metrics and risk register
+- Dependency map
+
+---
+
+## PROMPT 4: Execution, Issue Tracking & Quality Control
+
+**Mission:** Execute the plan from Prompt 3, validate quality, identify issues, and report status without allowing scope creep.
+
+### Execution Protocol
+
+**1. Load Execution Context**
+
+Project structure, analysis from Prompts 1-2, todos with all metadata, rules and standards, success criteria
+
+**2. Execute Todos in Priority/Dependency Order**
+
+- Process Critical → High → Medium → Low
+- Complete todos fully before marking done
+- Follow all established rules and standards
+- Escalate blockers immediately
+
+**3. Quality Validation (All Relevant Checks Required)**
+
+- **Functional:** Does it meet success criteria?
+- **Code Quality:** Follows standards and conventions?
+- **Test Coverage:** All required tests present and passing?
+- **Documentation:** Complete and accurate?
+- **Performance:** Meets benchmarks?
+- **Security:** Requirements met, no vulnerabilities?
+- **Integration:** Works with related components?
+
+**4. Issue Categorization**
+
+- **Blocking:** Prevents execution; resolve immediately
+- **Critical:** Impacts quality/security/performance; fix before proceeding
+- **High:** Impacts functionality/UX; fix soon
+- **Medium:** Minor bugs; can defer
+- **Low:** Nice-to-haves; log only
+
+**5. Strict Adherence**
+
+- Reject all scope creep (document but don't implement)
+- Enforce all established rules
+- Maintain specification as single source of truth
+- Document any necessary deviations
+
+**6. Create Improvement Backlog** (Log Only, DO NOT IMPLEMENT)
+
+- Optimizations identified
+- Refactoring opportunities
+- Process improvements
+- Future enhancements
+
+**7. Status Report**
+
+Save to `.cursor/reports/report_YYYYMMDD_HHMMSS.md`
+
+Contents:
+
+- Executive summary (status, progress, blockers, recommendation)
+- Completed todos with validation evidence
+- In-progress work and blockers
+- Issues by severity with root cause and proposed fixes
+- Next 5-10 todos with dependency explanations
+- Quality metrics (coverage, performance, test pass rate)
+- Any specification changes needed
+
+### Key Rules
+
+- Todos are not complete until all quality validations pass
+- Report at `.cursor/reports/` before any other deliverables
+- Each execution iteration generates a new timestamped report
+- Ruthlessly prevent deviation from the plan

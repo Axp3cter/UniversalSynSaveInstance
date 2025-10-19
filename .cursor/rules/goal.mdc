@@ -1,0 +1,22 @@
+---
+alwaysApply: true
+---
+
+# USSI Rewrite
+
+
+## Goal
+
+Rewrite the old USSI code ( .cursor\data\old\saveinstance.luau ) to be made with cascade ui and to also support being used without the ui with only logging showing and make proper use of my project, it should be designed to assume the environement will have full support for only sunc api ( .cursor\data\docs.sunc.su-main ) and not try to support other naming of api or behavior
+
+## Core Requirements
+
+make sure it reads the other projects on parsing binary and xml, for now only try to code/support xml but make the code be able to easily support binary, it should allow both a model or a game file saving
+with absolute full coverage and it should also be perfect in its documentation and commentation to include authoratative info for easy comparisons
+
+the structure i have is also the structure of how cascade ui was coded so just go into .cursor\data\Cascade-main and learn about where and how u code stuff
+
+## Development Standards ( ALWAYS AS AGGRESSIVE AND THOROUGH AND COMPLETE AS POSSIBLE WITH NO DEVIATIONS )
+
+- Code Quality: Build from scratch—use `.cursor/data` only as reference, dont just copy and paste. Verify implementations against multiple sources by reading atleast 3 different versions of the same code. Include robust error handling and edge case testing.
+- Research: Consult diverse sources. Compare multiple reference implementations. Test thoroughly before integration. Apply aggressive code quality and file/folder structuring design principles. keep code modular and clean. always use the latest technologies, packages and standards which u will determine by searching up the latest version of everything
