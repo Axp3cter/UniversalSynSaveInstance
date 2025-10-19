@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Goal
 
-Rewrite the old USSI code ( .cursor\data\old\saveinstance.luau ) to be made with cascade ui and to also support being used without the ui with only logging showing and make proper use of my project, it should be designed to assume the environement will have full support for only sunc api ( .cursor\data\docs.sunc.su-main ) and not try to support other naming of api or behavior
+Rewrite the old USSI code ( .cursor\data\old\saveinstance.luau ) to be made with cascade ui and project structure and to also support being used without the ui with only logging showing and make proper use of my project structure which is a modified version of cascade ui project structure, it should be a more complex version of the previous code, dont try to introduce new features unless absolutely neccessary for cleaner better code, keep it simple and use packages like cascade for the ui and fusion,promise and tableutil for the internal logic
 
 ## Core Requirements
 

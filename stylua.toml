@@ -1,0 +1,30 @@
+# .stylua.toml — Windows + tabs + "spaced out" tweaks (your changes applied)
+
+syntax = "All"
+
+# Use Windows line endings (CRLF)
+line_endings = "Windows"
+
+# Use real tab characters for indentation
+indent_type = "Tabs"
+# heuristic width for tab-based alignment
+indent_width = 4
+
+# Wider wrap so lines have breathing room
+column_width = 120
+
+# Prefer double quotes when possible (falls back if fewer escapes needed)
+quote_style = "AutoPreferDouble"
+
+# Always add a space between function name and parentheses: `fn ()` and `fn ()`
+space_after_function_names = "Always"
+
+# Do NOT preserve leading/trailing blank-line gaps for blocks (we'll normalize them)
+block_newline_gaps = "Never"
+
+# Keep simple-statements expanded (more vertical spacing)
+collapse_simple_statement = "Never"
+
+# Keep require-sorting enabled (optional)
+[sort_requires]
+enabled = true
