@@ -2,7 +2,7 @@
 	Executor Utilities - sUNC API Wrapper
 
 	Promise-based executor function wrappers following sUNC specification.
-	Functions are prefixed with underscore to avoid conflicts with globals.
+	All sUNC API access goes through wrapped methods.
 
 	@author Aspecter
 	@version 2.0.0
@@ -22,30 +22,36 @@ export type ExecutorInfo = {
 	detected: boolean,
 }
 
--- Executor detection
+-- Executor detection state
 local info: ExecutorInfo = { name = "Unknown", version = nil, detected = false }
 
-if identifyexecutor then
-	local ok, name, version = pcall(identifyexecutor)
-	if ok then
-		info.name = tostring(name or "Unknown")
-		info.version = version and tostring(version) or nil
-		info.detected = true
-	end
-end
+--[=[
+	Gets executor identification info
 
--- Normalize file paths (convert backslashes to forward slashes)
-local function normalizePath(path: string): string
-	return path:gsub("\\", "/")
-end
+	@return Promise<ExecutorResult<ExecutorInfo>> -- Executor info
+]=]
+local function _identifyExecutor()
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not identifyexecutor then
+			return resolve({ success = false, error = "identifyexecutor not found" } :: ExecutorResult<ExecutorInfo>)
+		end
 
--- Ensure parent directory exists for file path
-local function ensureDirectory(path: string): boolean
-	local dir = path:match("^(.+)/")
-	if not dir or isfolder(dir) then
-		return true
-	end
-	return pcall(makefolder, dir)
+		-- Call function safely
+		local ok, name, version = pcall(identifyexecutor)
+		resolve(
+			if ok
+				then {
+					success = true,
+					data = {
+						name = tostring(name or "Unknown"),
+						version = version and tostring(version) or nil,
+						detected = true,
+					},
+				}
+				else { success = false, error = tostring(name) } :: ExecutorResult<ExecutorInfo>
+		)
+	end)
 end
 
 --[=[
@@ -78,21 +84,21 @@ end
 	@param instance Instance -- Instance to modify
 	@param property string -- Property name
 	@param value any -- New value
-	@return Promise<ExecutorResult<boolean>> -- Success or error
+	@return Promise<ExecutorResult<nil>> -- Success or error
 ]=]
 local function _setHiddenProperty(instance: Instance, property: string, value: any)
 	return Promise.defer(function(resolve)
 		-- Check if function exists
 		if not sethiddenproperty then
-			return resolve({ success = false, error = "sethiddenproperty not found" } :: ExecutorResult<boolean>)
+			return resolve({ success = false, error = "sethiddenproperty not found" } :: ExecutorResult<nil>)
 		end
 
 		-- Call function safely
 		local ok, result = pcall(sethiddenproperty, instance, property, value)
 		resolve(
 			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<boolean>
+				then { success = true, data = nil }
+				else { success = false, error = tostring(result) } :: ExecutorResult<nil>
 		)
 	end)
 end
@@ -147,17 +153,23 @@ end
 	Clones instance reference
 
 	@param object Instance -- Instance to clone
-	@return T -- Cloned reference or original
+	@return Promise<ExecutorResult<Instance>> -- Cloned reference or original
 ]=]
-local function _cloneRef<T>(object: T & Instance): T
-	-- Return original if function doesn't exist
-	if not cloneref then
-		return object
-	end
+local function _cloneRef<T>(object: T & Instance)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not cloneref then
+			return resolve({ success = false, error = "cloneref not found" } :: ExecutorResult<T & Instance>)
+		end
 
-	-- Try to clone, fallback to original
-	local ok, result = pcall(cloneref, object)
-	return if ok then result else object
+		-- Call function safely
+		local ok, result = pcall(cloneref, object)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<T & Instance>
+		)
+	end)
 end
 
 --[=[
@@ -177,8 +189,8 @@ local function _setThreadIdentity(identity: number)
 		local ok = pcall(setthreadidentity, identity)
 		resolve(
 			if ok
-				then { success = true }
-				else { success = false, error = `Failed to set identity to {identity}` } :: ExecutorResult<nil>
+				then { success = true, data = nil }
+				else { success = false, error = "Failed to set thread identity" } :: ExecutorResult<nil>
 		)
 	end)
 end
@@ -190,17 +202,18 @@ end
 ]=]
 local function _getThreadIdentity()
 	return Promise.defer(function(resolve)
-		-- Return 0 if function doesn't exist
+		-- Check if function exists
 		if not getthreadidentity then
-			return resolve({ success = true, data = 0 } :: ExecutorResult<number>)
+			return resolve({ success = false, error = "getthreadidentity not found" } :: ExecutorResult<number>)
 		end
 
-		-- Get identity, default to 0 on failure
+		-- Call function safely
 		local ok, result = pcall(getthreadidentity)
-		resolve({
-			success = true,
-			data = if ok and type(result) == "number" then result else 0,
-		} :: ExecutorResult<number>)
+		resolve(
+			if ok and type(result) == "number"
+				then { success = true, data = result }
+				else { success = false, error = "Failed to get thread identity" } :: ExecutorResult<number>
+		)
 	end)
 end
 
@@ -274,121 +287,53 @@ local function _sha384Hash(data: string)
 end
 
 --[=[
-	Reads file contents
+	Checks if path is a file
 
-	@param path string -- File path
-	@return Promise<ExecutorResult<string>> -- File contents or error
+	@param path string -- Path to check
+	@return Promise<ExecutorResult<boolean>> -- True if file exists
 ]=]
-local function _readFile(path: string)
+local function _isFile(path: string)
 	return Promise.defer(function(resolve)
-		-- Normalize path separators
-		path = normalizePath(path)
-
-		-- Check if file exists
-		if not isfile(path) then
-			return resolve({ success = false, error = `File not found: {path}` } :: ExecutorResult<string>)
+		-- Check if function exists
+		if not isfile then
+			return resolve({ success = false, error = "isfile not found" } :: ExecutorResult<boolean>)
 		end
 
-		-- Read file safely
-		local ok, data = pcall(readfile, path)
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if file exists
+		local ok, result = pcall(isfile, normalizedPath)
 		resolve(
 			if ok
-				then { success = true, data = data }
-				else { success = false, error = `Failed to read: {data}` } :: ExecutorResult<string>
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<boolean>
 		)
 	end)
 end
 
 --[=[
-	Writes content to file
+	Checks if path is a directory
 
-	@param path string -- File path
-	@param content string -- Content to write
-	@return Promise<ExecutorResult<nil>> -- Success or error
+	@param path string -- Path to check
+	@return Promise<ExecutorResult<boolean>> -- True if directory exists
 ]=]
-local function _writeFile(path: string, content: string)
+local function _isFolder(path: string)
 	return Promise.defer(function(resolve)
-		-- Normalize path separators
-		path = normalizePath(path)
-
-		-- Ensure parent directory exists
-		if not ensureDirectory(path) then
-			return resolve({ success = false, error = `Failed to create directory` } :: ExecutorResult<nil>)
+		-- Check if function exists
+		if not isfolder then
+			return resolve({ success = false, error = "isfolder not found" } :: ExecutorResult<boolean>)
 		end
 
-		-- Write file safely
-		local ok = pcall(writefile, path, content)
-		resolve(if ok then { success = true } else { success = false, error = `Failed to write` } :: ExecutorResult<nil>)
-	end)
-end
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
 
---[=[
-	Appends content to file
-
-	@param path string -- File path
-	@param content string -- Content to append
-	@return Promise<ExecutorResult<nil>> -- Success or error
-]=]
-local function _appendFile(path: string, content: string)
-	return Promise.defer(function(resolve)
-		-- Normalize path separators
-		path = normalizePath(path)
-
-		-- Check if file exists
-		if not isfile(path) then
-			return resolve({ success = false, error = `File not found: {path}` } :: ExecutorResult<nil>)
-		end
-
-		-- Append to file safely
-		local ok = pcall(appendfile, path, content)
-		resolve(if ok then { success = true } else { success = false, error = `Failed to append` } :: ExecutorResult<nil>)
-	end)
-end
-
---[=[
-	Deletes file
-
-	@param path string -- File path
-	@return Promise<ExecutorResult<nil>> -- Success or error
-]=]
-local function _deleteFile(path: string)
-	return Promise.defer(function(resolve)
-		-- Normalize path separators
-		path = normalizePath(path)
-
-		-- Check if file exists
-		if not isfile(path) then
-			return resolve({ success = false, error = `File not found: {path}` } :: ExecutorResult<nil>)
-		end
-
-		-- Delete file safely
-		local ok = pcall(delfile, path)
-		resolve(if ok then { success = true } else { success = false, error = `Failed to delete` } :: ExecutorResult<nil>)
-	end)
-end
-
---[=[
-	Lists directory contents
-
-	@param path string -- Directory path
-	@return Promise<ExecutorResult<{string}>> -- File list or error
-]=]
-local function _listFiles(path: string)
-	return Promise.defer(function(resolve)
-		-- Normalize path separators
-		path = normalizePath(path)
-
-		-- Check if directory exists
-		if not isfolder(path) then
-			return resolve({ success = false, error = `Directory not found: {path}` } :: ExecutorResult<{ string }>)
-		end
-
-		-- List files safely
-		local ok, files = pcall(listfiles, path)
+		-- Check if folder exists
+		local ok, result = pcall(isfolder, normalizedPath)
 		resolve(
 			if ok
-				then { success = true, data = files }
-				else { success = false, error = `Failed to list: {files}` } :: ExecutorResult<{ string }>
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<boolean>
 		)
 	end)
 end
@@ -401,38 +346,263 @@ end
 ]=]
 local function _createFolder(path: string)
 	return Promise.defer(function(resolve)
-		-- Normalize path separators
-		path = normalizePath(path)
-
-		-- Skip if already exists
-		if isfolder(path) then
-			return resolve({ success = true } :: ExecutorResult<nil>)
+		-- Check if function exists
+		if not makefolder then
+			return resolve({ success = false, error = "makefolder not found" } :: ExecutorResult<nil>)
 		end
 
-		-- Create folder safely
-		local ok = pcall(makefolder, path)
-		resolve(if ok then { success = true } else { success = false, error = `Failed to create folder` } :: ExecutorResult<nil>)
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if already exists
+		_isFolder(normalizedPath):andThen(function(folderCheck)
+			if folderCheck.success and folderCheck.data then
+				return resolve({ success = true, data = nil } :: ExecutorResult<nil>)
+			end
+
+			-- Create folder safely
+			local ok = pcall(makefolder, normalizedPath)
+			resolve(
+				if ok
+					then { success = true, data = nil }
+					else { success = false, error = "Failed to create folder" } :: ExecutorResult<nil>
+			)
+		end):catch(function(err)
+			resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
+		end)
 	end)
 end
 
 --[=[
-	Checks if path is a file
+	Reads file contents
 
-	@param path string -- Path to check
-	@return boolean -- True if file exists
+	@param path string -- File path
+	@return Promise<ExecutorResult<string>> -- File contents or error
 ]=]
-local function _isFile(path: string): boolean
-	return isfile(normalizePath(path))
+local function _readFile(path: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not readfile then
+			return resolve({ success = false, error = "readfile not found" } :: ExecutorResult<string>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if file exists
+		_isFile(normalizedPath):andThen(function(fileCheck)
+			if not fileCheck.success then
+				return resolve({ success = false, error = fileCheck.error or "Failed to check file" } :: ExecutorResult<string>)
+			end
+
+			if not fileCheck.data then
+				return resolve({ success = false, error = `File not found: {normalizedPath}` } :: ExecutorResult<string>)
+			end
+
+			-- Read file safely
+			local ok, data = pcall(readfile, normalizedPath)
+			resolve(
+				if ok
+					then { success = true, data = data }
+					else { success = false, error = tostring(data) } :: ExecutorResult<string>
+			)
+		end):catch(function(err)
+			resolve({ success = false, error = tostring(err) } :: ExecutorResult<string>)
+		end)
+	end)
 end
 
 --[=[
-	Checks if path is a directory
+	Writes content to file
 
-	@param path string -- Path to check
-	@return boolean -- True if directory exists
+	@param path string -- File path
+	@param content string -- Content to write
+	@return Promise<ExecutorResult<nil>> -- Success or error
 ]=]
-local function _isFolder(path: string): boolean
-	return isfolder(normalizePath(path))
+local function _writeFile(path: string, content: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not writefile then
+			return resolve({ success = false, error = "writefile not found" } :: ExecutorResult<nil>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Ensure parent directory exists
+		local dir = normalizedPath:match("^(.+)/")
+		if dir then
+			_createFolder(dir):andThen(function(createResult)
+				if not createResult.success then
+					return resolve({ success = false, error = createResult.error or "Failed to create directory" } :: ExecutorResult<nil>)
+				end
+
+				-- Write file safely
+				local ok = pcall(writefile, normalizedPath, content)
+				resolve(
+					if ok
+						then { success = true, data = nil }
+						else { success = false, error = "Failed to write file" } :: ExecutorResult<nil>
+				)
+			end):catch(function(err)
+				resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
+			end)
+		else
+			-- Write file safely (no directory needed)
+			local ok = pcall(writefile, normalizedPath, content)
+			resolve(
+				if ok
+					then { success = true, data = nil }
+					else { success = false, error = "Failed to write file" } :: ExecutorResult<nil>
+			)
+		end
+	end)
+end
+
+--[=[
+	Appends content to file
+
+	@param path string -- File path
+	@param content string -- Content to append
+	@return Promise<ExecutorResult<nil>> -- Success or error
+]=]
+local function _appendFile(path: string, content: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not appendfile then
+			return resolve({ success = false, error = "appendfile not found" } :: ExecutorResult<nil>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if file exists
+		_isFile(normalizedPath):andThen(function(fileCheck)
+			if not fileCheck.success then
+				return resolve({ success = false, error = fileCheck.error or "Failed to check file" } :: ExecutorResult<nil>)
+			end
+
+			if not fileCheck.data then
+				return resolve({ success = false, error = `File not found: {normalizedPath}` } :: ExecutorResult<nil>)
+			end
+
+			-- Append to file safely
+			local ok = pcall(appendfile, normalizedPath, content)
+			resolve(
+				if ok
+					then { success = true, data = nil }
+					else { success = false, error = "Failed to append to file" } :: ExecutorResult<nil>
+			)
+		end):catch(function(err)
+			resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
+		end)
+	end)
+end
+
+--[=[
+	Deletes file
+
+	@param path string -- File path
+	@return Promise<ExecutorResult<nil>> -- Success or error
+]=]
+local function _deleteFile(path: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not delfile then
+			return resolve({ success = false, error = "delfile not found" } :: ExecutorResult<nil>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if file exists
+		_isFile(normalizedPath):andThen(function(fileCheck)
+			if not fileCheck.success then
+				return resolve({ success = false, error = fileCheck.error or "Failed to check file" } :: ExecutorResult<nil>)
+			end
+
+			if not fileCheck.data then
+				return resolve({ success = false, error = `File not found: {normalizedPath}` } :: ExecutorResult<nil>)
+			end
+
+			-- Delete file safely
+			local ok = pcall(delfile, normalizedPath)
+			resolve(
+				if ok
+					then { success = true, data = nil }
+					else { success = false, error = "Failed to delete file" } :: ExecutorResult<nil>
+			)
+		end):catch(function(err)
+			resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
+		end)
+	end)
+end
+
+--[=[
+	Lists directory contents
+
+	@param path string -- Directory path
+	@return Promise<ExecutorResult<{string}>> -- File list or error
+]=]
+local function _listFiles(path: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not listfiles then
+			return resolve({ success = false, error = "listfiles not found" } :: ExecutorResult<{ string }>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if directory exists
+		_isFolder(normalizedPath):andThen(function(folderCheck)
+			if not folderCheck.success then
+				return resolve({
+					success = false,
+					error = folderCheck.error or "Failed to check folder",
+				} :: ExecutorResult<{ string }>)
+			end
+
+			if not folderCheck.data then
+				return resolve({
+					success = false,
+					error = `Directory not found: {normalizedPath}`,
+				} :: ExecutorResult<{ string }>)
+			end
+
+			-- List files safely
+			local ok, files = pcall(listfiles, normalizedPath)
+			resolve(
+				if ok
+					then { success = true, data = files }
+					else { success = false, error = tostring(files) } :: ExecutorResult<{ string }>
+			)
+		end):catch(function(err)
+			resolve({ success = false, error = tostring(err) } :: ExecutorResult<{ string }>)
+		end)
+	end)
+end
+
+--[=[
+	Gets global environment
+
+	@return Promise<ExecutorResult<table>> -- Global environment table
+]=]
+local function _getgenv()
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not getgenv then
+			return resolve({ success = false, error = "getgenv not found" } :: ExecutorResult<{ [any]: any }>)
+		end
+
+		-- Call function safely
+		local ok, result = pcall(getgenv)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<{ [any]: any }>
+		)
+	end)
 end
 
 --[=[
@@ -442,8 +612,19 @@ end
 	@return boolean -- True if function exists
 ]=]
 local function hasFunction(name: string): boolean
+	-- Check if getgenv exists
+	if not getgenv then
+		return false
+	end
+
+	-- Get global environment
+	local ok, env = pcall(getgenv)
+	if not ok then
+		return false
+	end
+
 	local parts = string.split(name, ".")
-	local current = getgenv()
+	local current = env
 
 	-- Traverse nested path
 	for _, part in parts do
@@ -459,24 +640,19 @@ local function hasFunction(name: string): boolean
 	return true
 end
 
---[=[
-	Refreshes executor detection info
-
-	@return nil
-]=]
-local function refresh()
-	if identifyexecutor then
-		local ok, name, version = pcall(identifyexecutor)
-		if ok then
-			info.name = tostring(name or "Unknown")
-			info.version = version and tostring(version) or nil
-			info.detected = true
-		end
+-- Initialize executor info on module load
+_identifyExecutor():andThen(function(result)
+	if result.success and result.data then
+		info.name = result.data.name
+		info.version = result.data.version
+		info.detected = result.data.detected
 	end
-end
+end)
 
 return {
 	info = info,
+	getgenv = _getgenv,
+	identifyExecutor = _identifyExecutor,
 	getHiddenProperty = _getHiddenProperty,
 	setHiddenProperty = _setHiddenProperty,
 	getScriptBytecode = _getScriptBytecode,
@@ -496,5 +672,4 @@ return {
 	isFile = _isFile,
 	isFolder = _isFolder,
 	hasFunction = hasFunction,
-	refresh = refresh,
 }

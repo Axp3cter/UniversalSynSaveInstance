@@ -62,6 +62,17 @@ export type Stats = {
 	mode: SaveMode,
 }
 
+--- Executor environment information
+--- @class ExecutorInfo
+export type ExecutorInfo = {
+	--- Executor name
+	name: string,
+	--- Executor version
+	version: string?,
+	--- Whether executor was successfully detected
+	detected: boolean,
+}
+
 
 -- ============================================================================
 -- CONFIGURATION OPTIONS
@@ -151,3 +162,4 @@ export type Options = {
 	ignoreDefaultPlayerScripts: boolean?,
 }
 
+return {}

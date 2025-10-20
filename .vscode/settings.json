@@ -8,5 +8,6 @@
     "luau-lsp.ignoreGlobs": [
         "**/packages/**",
         "**/.data/**"
-    ]
+    ],
+    "chatgpt.openOnStartup": false
 }

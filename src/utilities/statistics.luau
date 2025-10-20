@@ -8,10 +8,26 @@
 	@version 2.0.0
 ]]
 
+-- Types
 export type BenchmarkResult = {
 	time: number,
-	function: (...any) -> ...any,
+	fn: (...any) -> ...any,
 }
+
+export type Stats = {
+	min: number,
+	max: number,
+	avg: number,
+	total: number,
+	median: number,
+}
+
+-- Private: Measures execution time of a function with arguments
+local function _measureTime(fn: (...any) -> ...any, args: { any }): number
+	local start = os.clock()
+	fn(table.unpack(args))
+	return os.clock() - start
+end
 
 --[=[
 	Benchmarks multiple functions and returns the fastest
@@ -27,6 +43,7 @@ local function benchmark(iterations: number, ...: (...any) -> ...any): (...any) 
 	local functions = { ... }
 	local results: { BenchmarkResult } = {}
 
+	-- Benchmark each function
 	for i, fn in functions do
 		local start = os.clock()
 		for _ = 1, iterations do
@@ -36,22 +53,25 @@ local function benchmark(iterations: number, ...: (...any) -> ...any): (...any) 
 
 		results[i] = {
 			time = elapsed,
-			["function"] = fn,
+			fn = fn,
 		}
 	end
 
+	-- Sort by execution time (fastest first)
 	table.sort(results, function(a, b)
 		return a.time < b.time
 	end)
 
-	return results[1]["function"]
+	return results[1].fn
 end
 
 --[=[
 	Benchmarks functions with arguments and returns the fastest
 
-	@param iterations number -- Number of iterations
-	@param args {any} -- Arguments to pass to functions
+	Similar to benchmark() but passes arguments to each function call.
+
+	@param iterations number -- Number of iterations per function
+	@param args {any} -- Arguments to pass to each function
 	@param ... (...any) -> ...any -- Functions to benchmark
 	@return (...any) -> ...any -- Fastest function
 ]=]
@@ -63,6 +83,7 @@ local function benchmarkWithArgs(
 	local functions = { ... }
 	local results: { BenchmarkResult } = {}
 
+	-- Benchmark each function with arguments
 	for i, fn in functions do
 		local start = os.clock()
 		for _ = 1, iterations do
@@ -72,22 +93,23 @@ local function benchmarkWithArgs(
 
 		results[i] = {
 			time = elapsed,
-			["function"] = fn,
+			fn = fn,
 		}
 	end
 
+	-- Sort by execution time (fastest first)
 	table.sort(results, function(a, b)
 		return a.time < b.time
 	end)
 
-	return results[1]["function"]
+	return results[1].fn
 end
 
 --[=[
 	Measures execution time of a single function
 
 	@param fn (...any) -> ...any -- Function to measure
-	@param ... any -- Arguments to pass
+	@param ... any -- Arguments to pass to function
 	@return number -- Execution time in seconds
 ]=]
 local function measure(fn: (...any) -> ...any, ...: any): number
@@ -97,21 +119,19 @@ local function measure(fn: (...any) -> ...any, ...: any): number
 end
 
 --[=[
-	Runs function multiple times and returns average time
+	Runs function multiple times and returns average execution time
 
-	@param iterations number -- Number of iterations
+	@param iterations number -- Number of times to run function
 	@param fn (...any) -> ...any -- Function to measure
-	@param ... any -- Arguments to pass
-	@return number -- Average execution time
+	@param ... any -- Arguments to pass to function
+	@return number -- Average execution time in seconds
 ]=]
 local function average(iterations: number, fn: (...any) -> ...any, ...: any): number
 	local args = { ... }
 	local total = 0
 
 	for _ = 1, iterations do
-		local start = os.clock()
-		fn(table.unpack(args))
-		total += os.clock() - start
+		total += _measureTime(fn, args)
 	end
 
 	return total / iterations
@@ -120,24 +140,27 @@ end
 --[=[
 	Gets detailed benchmark statistics
 
-	@param iterations number -- Number of iterations
+	Runs function multiple times and collects comprehensive statistics
+	including min, max, average, total, and median execution times.
+
+	@param iterations number -- Number of times to run function
 	@param fn (...any) -> ...any -- Function to benchmark
-	@param ... any -- Arguments to pass
-	@return table -- Statistics (min, max, avg, total)
+	@param ... any -- Arguments to pass to function
+	@return Stats -- Detailed statistics
 ]=]
-local function stats(iterations: number, fn: (...any) -> ...any, ...: any)
+local function getStats(iterations: number, fn: (...any) -> ...any, ...: any): Stats
 	local args = { ... }
-	local times = {}
+	local times: { number } = {}
 	local total = 0
 
+	-- Collect all execution times
 	for i = 1, iterations do
-		local start = os.clock()
-		fn(table.unpack(args))
-		local elapsed = os.clock() - start
+		local elapsed = _measureTime(fn, args)
 		times[i] = elapsed
 		total += elapsed
 	end
 
+	-- Sort times for median calculation
 	table.sort(times)
 
 	return {
@@ -154,5 +177,5 @@ return {
 	benchmarkWithArgs = benchmarkWithArgs,
 	measure = measure,
 	average = average,
-	stats = stats,
+	getStats = getStats,
 }

@@ -6,6 +6,6 @@
 ]]
 
 return {
-	AttributeTypes = require("./attributeTypes"),
-	CFrameRotations = require("./cframeRotations"),
+	AttributeTypes = require("@constants/attributeTypes"),
+	CFrameRotations = require("@constants/cframeRotations"),
 }

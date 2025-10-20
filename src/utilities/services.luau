@@ -2,16 +2,19 @@
 	Services Utility - Cached Service Access
 
 	Safe, cached access to Roblox services with multiple fallback strategies.
-	Automatically uses cloneref when available for security.
+	Automatically uses cloneRef when available for security.
 
 	@author Aspecter
 	@version 2.0.0
 ]]
 
+local cloneRef = require("@utilities/executor").cloneRef
+
 export type Service = Instance | SomeOtherService | UserGameSettings
 
 local cache: { [string]: Service } = {}
 
+-- Safe call wrapper
 local function tryGet(fn: () -> Service): Service?
 	local ok, result = pcall(fn)
 	return if ok then result else nil
@@ -32,10 +35,12 @@ end
 	@return Service? -- Service instance or nil
 ]=]
 return function(name: string): Service?
+	-- Return cached service
 	if cache[name] then
 		return cache[name]
 	end
 
+	-- Try multiple access methods
 	local service = tryGet(function()
 		return Instance.new(name) :: Service
 	end)
@@ -50,11 +55,11 @@ return function(name: string): Service?
 		end)
 
 	if service then
-		if cloneref then
-			service = tryGet(function()
-				return cloneref(service :: Instance)
-			end) or service
-		end
+		-- Clone reference using executor wrapper
+		local result = cloneRef(service :: Instance):expect()
+		service = if result.success and result.data then result.data else service
+
+		-- Cache the service
 		cache[name] = service
 	end
 

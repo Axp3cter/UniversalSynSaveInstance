@@ -1,8 +1,6 @@
 --[[
-	Attribute Types - Binary Type IDs
-
-	@author Aspecter
-	@version 1.0.0
+	Attribute Types - Binary type IDs
+	@author Aspecter | @version 2.0.0
 ]]
 
 export type AttributeTypes = {

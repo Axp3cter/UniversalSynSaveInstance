@@ -3,7 +3,10 @@
     "allow": [
       "Bash(dir /B /S *.md)",
       "Bash(where /r . *.txt)",
-      "Bash(dir /B \"C:\\Users\\Aspecter\\Documents\\GitHub\\UniversalSynSaveInstance\\src\")"
+      "Bash(dir /B \"C:\\Users\\Aspecter\\Documents\\GitHub\\UniversalSynSaveInstance\\src\")",
+      "Bash(luau-lsp analyze --settings=\".vscode/settings.json\" --definitions=\"luau-lsp.d.luau\" \"src/utilities/executor.luau\")",
+      "Bash(dir /B /S src)",
+      "Bash(lune --version)"
     ],
     "deny": [],
     "ask": []

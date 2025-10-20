@@ -8,12 +8,16 @@
 	@version 2.0.0
 ]]
 
+-- Types
+export type TrimMode = "both" | "start" | "end"
+export type PadSide = "left" | "right"
+
 --[=[
 	Checks if string contains substring
 
-	@param str string -- String to search
+	@param str string -- String to search in
 	@param substr string -- Substring to find
-	@return boolean -- True if found
+	@return boolean -- True if substring found
 ]=]
 local function contains(str: string, substr: string): boolean
 	return string.find(str, substr, 1, true) ~= nil
@@ -24,7 +28,7 @@ end
 
 	@param str string -- String to check
 	@param prefix string -- Prefix to match
-	@return boolean -- True if starts with prefix
+	@return boolean -- True if string starts with prefix
 ]=]
 local function startsWith(str: string, prefix: string): boolean
 	return string.sub(str, 1, #prefix) == prefix
@@ -35,7 +39,7 @@ end
 
 	@param str string -- String to check
 	@param suffix string -- Suffix to match
-	@return boolean -- True if ends with suffix
+	@return boolean -- True if string ends with suffix
 ]=]
 local function endsWith(str: string, suffix: string): boolean
 	return string.sub(str, -#suffix) == suffix
@@ -45,10 +49,10 @@ end
 	Trims whitespace from string
 
 	@param str string -- String to trim
-	@param mode ("both" | "start" | "end")? -- Which sides to trim (default: "both")
+	@param mode TrimMode? -- Which sides to trim (default: "both")
 	@return string -- Trimmed string
 ]=]
-local function trim(str: string, mode: ("both" | "start" | "end")?): string
+local function trim(str: string, mode: TrimMode?): string
 	local trimMode = mode or "both"
 
 	if trimMode == "both" then
@@ -68,10 +72,10 @@ end
 	@param str string -- String to pad
 	@param length number -- Target length
 	@param char string? -- Pad character (default: " ")
-	@param side ("left" | "right")? -- Pad side (default: "left")
+	@param side PadSide? -- Side to pad (default: "left")
 	@return string -- Padded string
 ]=]
-local function pad(str: string, length: number, char: string?, side: ("left" | "right")?): string
+local function pad(str: string, length: number, char: string?, side: PadSide?): string
 	if #str >= length then
 		return str
 	end
@@ -84,8 +88,8 @@ end
 	Splits string by separator
 
 	@param str string -- String to split
-	@param separator string? -- Separator (default: ",")
-	@return {string} -- Split parts
+	@param separator string? -- Separator pattern (default: ",")
+	@return {string} -- Array of split parts
 ]=]
 local function split(str: string, separator: string?): { string }
 	return string.split(str, separator or ",")

@@ -1,8 +1,6 @@
 --[[
-	CFrame Rotations - Rotation Matrix IDs
-
-	@author Aspecter
-	@version 1.0.0
+	CFrame Rotations - Rotation matrix IDs
+	@author Aspecter | @version 2.0.0
 ]]
 
 export type CFrameRotations = { [string]: number }
