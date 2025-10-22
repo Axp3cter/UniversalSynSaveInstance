@@ -8,6 +8,7 @@
         "modules": "./src/modules",
         "utilities": "./src/utilities",
         "core": "./src/core",
+        "constants": "./src/constants",
         "types": "./src/types.luau",
         "packages": "./packages",
         "globals": "./.globals"

@@ -9,17 +9,18 @@
 	@since 2025-01-20
 ]]
 
-local CoreInstance = require("@core/instance")
-local XMLProperties = require("@core/xml/properties")
-local Referent = require("@core/referent")
+local Attributes = require ("@core/attributes")
+local CoreInstance = require ("@core/instance")
+local PropertyTypes = require ("@constants/propertyTypes")
+local Referent = require ("@core/referent")
+local Tags = require ("@core/tags")
+local XMLAttributes = require ("@core/xml/attributes")
+local XMLProperties = require ("@core/xml/properties")
+local XMLUtil = require ("@utilities/xml")
 
 export type Options = CoreInstance.Options
 
-export type SerializedInstance = {
-	className: string,
-	referent: string,
-	properties: { SerializedProperty },
-}
+export type SerializedAttribute = XMLAttributes.SerializedAttribute
 
 export type SerializedProperty = {
 	name: string,
@@ -27,37 +28,13 @@ export type SerializedProperty = {
 	value: string,
 }
 
--- Property type mapping for XML
-local TYPE_MAP: { [string]: string } = {
-	string = "string",
-	boolean = "bool",
-	number = "float",
-	Vector2 = "Vector2",
-	Vector3 = "Vector3",
-	Vector2int16 = "Vector2int16",
-	Vector3int16 = "Vector3int16",
-	Color3 = "Color3uint8",
-	CFrame = "CoordinateFrame",
-	UDim = "UDim",
-	UDim2 = "UDim2",
-	BrickColor = "int",
-	Rect = "Rect2D",
-	Ray = "Ray",
-	NumberSequence = "NumberSequence",
-	ColorSequence = "ColorSequence",
-	NumberRange = "NumberRange",
-	PhysicalProperties = "PhysicalProperties",
-	EnumItem = "token",
-	Faces = "Faces",
-	Axes = "Axes",
-	Font = "Font",
-	Instance = "Ref",
+export type SerializedInstance = {
+	className: string,
+	referent: string,
+	properties: { SerializedProperty },
+	attributes: { SerializedAttribute },
+	tags: string?,
 }
-
--- Gets XML type name for Roblox type
-local function getXMLType(robloxType: string): string
-	return TYPE_MAP[robloxType] or "string"
-end
 
 --[=[
 	Serializes instance to XML structure
@@ -69,17 +46,18 @@ end
 	@param opts Options -- Serialization options
 	@return SerializedInstance -- Structured instance data
 ]=]
-local function serialize(instance: Instance, opts: Options): SerializedInstance
-	local base = CoreInstance.serialize(instance, opts)
-	local referent = Referent.rbx(instance)
+local function serialize (instance: Instance, opts: Options): SerializedInstance
+	local base = CoreInstance.serialize (instance, opts)
+	local referent = Referent.rbx (instance)
 	local serializedProps: { SerializedProperty } = {}
+	local serializedAttrs: { SerializedAttribute } = {}
 
 	-- Serialize each property
 	for _, prop in base.properties do
-		local xmlType = getXMLType(prop.valueType)
-		local serializedValue = XMLProperties.serialize(prop.valueType, prop.value)
+		local xmlType = PropertyTypes.getXMLType (prop.valueType)
+		local serializedValue = XMLProperties.serialize (prop.valueType, prop.value)
 
-		table.insert(serializedProps, {
+		table.insert (serializedProps, {
 			name = prop.name,
 			valueType = xmlType,
 			value = serializedValue,
@@ -87,14 +65,27 @@ local function serialize(instance: Instance, opts: Options): SerializedInstance
 	end
 
 	-- Sort properties alphabetically by name (per .rbxlx spec)
-	table.sort(serializedProps, function(a, b)
-		return a.name < b.name
-	end)
+	table.sort (serializedProps, function (a, b) return a.name < b.name end)
+
+	-- Serialize attributes
+	local attrs = Attributes.read (instance, { mode = opts.mode })
+	for _, attr in attrs do
+		table.insert (serializedAttrs, XMLAttributes.serialize (attr.name, attr.value))
+	end
+
+	-- Sort attributes alphabetically by name
+	table.sort (serializedAttrs, function (a, b) return a.name < b.name end)
+
+	-- Serialize tags
+	local tags = Tags.read (instance, { mode = opts.mode })
+	local tagsStr = Tags.serialize (tags)
 
 	return {
 		className = base.className,
 		referent = referent,
 		properties = serializedProps,
+		attributes = serializedAttrs,
+		tags = if tagsStr and #tagsStr > 0 then tagsStr else nil,
 	}
 end
 
@@ -108,26 +99,35 @@ end
 	@param indent number? -- Indentation level (default: 0)
 	@return string -- XML markup for instance
 ]=]
-local function toXML(data: SerializedInstance, indent: number?): string
+local function toXML (data: SerializedInstance, indent: number?): string
 	local level = indent or 0
-	local tab = string.rep("\t", level)
+	local tab = string.rep ("\t", level)
 	local parts = {}
 
 	-- Opening Item tag
-	table.insert(parts, `{tab}<Item class="{data.className}" referent="{data.referent}">`)
+	table.insert (parts, `{tab}<Item class="{data.className}" referent="{data.referent}">`)
 
 	-- Properties section
 	if #data.properties > 0 then
-		table.insert(parts, `{tab}\t<Properties>`)
+		table.insert (parts, `{tab}\t<Properties>`)
 
 		for _, prop in data.properties do
-			table.insert(parts, `{tab}\t\t<{prop.valueType} name="{prop.name}">{prop.value}</{prop.valueType}>`)
+			table.insert (parts, `{tab}\t\t<{prop.valueType} name="{prop.name}">{prop.value}</{prop.valueType}>`)
 		end
 
-		table.insert(parts, `{tab}\t</Properties>`)
+		table.insert (parts, `{tab}\t</Properties>`)
 	end
 
-	return table.concat(parts, "\n")
+	-- Attributes section
+	if #data.attributes > 0 then table.insert (parts, XMLAttributes.toXML (data.attributes, level + 1)) end
+
+	-- Tags section
+	if data.tags then
+		local tagIndent = string.rep ("\t", level + 1)
+		table.insert (parts, `{tagIndent}<Tags>{XMLUtil.cdata (data.tags)}</Tags>`)
+	end
+
+	return table.concat (parts, "\n")
 end
 
 --[=[
@@ -138,9 +138,9 @@ end
 	@param indent number? -- Indentation level (default: 0)
 	@return string -- Closing tag markup
 ]=]
-local function closeTag(indent: number?): string
+local function closeTag (indent: number?): string
 	local level = indent or 0
-	local tab = string.rep("\t", level)
+	local tab = string.rep ("\t", level)
 	return `{tab}</Item>`
 end
 

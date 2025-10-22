@@ -2,21 +2,22 @@
 	Services Utility - Cached Service Access
 
 	Safe, cached access to Roblox services with multiple fallback strategies.
-	Automatically uses cloneRef when available for security.
+	Automatically uses cloneref when available for security.
 
 	@author Aspecter
-	@version 2.0.0
+	@version 3.0.0
+	@since 2025-01-21
 ]]
 
-local cloneRef = require("@utilities/executor").cloneRef
+local Executor = require ("@utilities/executor")
 
 export type Service = Instance | SomeOtherService | UserGameSettings
 
 local cache: { [string]: Service } = {}
 
 -- Safe call wrapper
-local function tryGet(fn: () -> Service): Service?
-	local ok, result = pcall(fn)
+local function tryGet (fn: () -> Service): Service?
+	local ok, result = pcall (fn)
 	return if ok then result else nil
 end
 
@@ -29,35 +30,25 @@ end
 	3. settings():GetService (settings services)
 	4. UserSettings():GetService (user services)
 
-	Successfully retrieved services are cached and cloneref'd.
+	Successfully retrieved services are cached and cloneref'd if available.
 
 	@param name string -- Service name
 	@return Service? -- Service instance or nil
 ]=]
-return function(name: string): Service?
+local function getService (name: string): Service?
 	-- Return cached service
-	if cache[name] then
-		return cache[name]
-	end
+	if cache[name] then return cache[name] end
 
 	-- Try multiple access methods
-	local service = tryGet(function()
-		return Instance.new(name) :: Service
-	end)
-		or tryGet(function()
-			return game:GetService(name) :: Service
-		end)
-		or tryGet(function()
-			return settings():GetService(name) :: Service
-		end)
-		or tryGet(function()
-			return UserSettings():GetService(name :: any) :: Service
-		end)
+	local service = tryGet (function () return Instance.new (name) :: Service end)
+		or tryGet (function () return game:GetService (name) :: Service end)
+		or tryGet (function () return settings ():GetService (name) :: Service end)
+		or tryGet (function () return UserSettings ():GetService (name :: any) :: Service end)
 
 	if service then
-		-- Clone reference using executor wrapper
-		local result = cloneRef(service :: Instance):expect()
-		service = if result.success and result.data then result.data else service
+		-- Clone reference if available (synchronous operation)
+		local cloneResult = Executor.cloneRef (service :: Instance)
+		service = if cloneResult.success and cloneResult.data then cloneResult.data else service
 
 		-- Cache the service
 		cache[name] = service
@@ -65,3 +56,29 @@ return function(name: string): Service?
 
 	return service
 end
+
+--[=[
+	Clears service cache
+
+	Useful for testing or when services need to be re-acquired
+]=]
+local function clearCache (): () table.clear (cache) end
+
+--[=[
+	Gets cache statistics
+
+	@return number -- Number of cached services
+]=]
+local function getCacheSize (): number
+	local count = 0
+	for _ in cache do
+		count += 1
+	end
+	return count
+end
+
+return {
+	getService = getService,
+	clearCache = clearCache,
+	getCacheSize = getCacheSize,
+}

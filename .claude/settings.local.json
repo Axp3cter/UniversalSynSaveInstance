@@ -6,7 +6,13 @@
       "Bash(dir /B \"C:\\Users\\Aspecter\\Documents\\GitHub\\UniversalSynSaveInstance\\src\")",
       "Bash(luau-lsp analyze --settings=\".vscode/settings.json\" --definitions=\"luau-lsp.d.luau\" \"src/utilities/executor.luau\")",
       "Bash(dir /B /S src)",
-      "Bash(lune --version)"
+      "Bash(lune --version)",
+      "Bash(dir:*)",
+      "Bash(lune run:*)",
+      "Bash(cp:*)",
+      "Bash(stylua:*)",
+      "Bash(luau-lsp analyze:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

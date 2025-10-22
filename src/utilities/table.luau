@@ -8,7 +8,7 @@
 	@version 2.0.0
 ]]
 
-local TableUtil = require("@packages/tableUtil")
+local TableUtil = require ("@packages/tableUtil")
 
 --[=[
 	Creates deep copy of table
@@ -16,9 +16,7 @@ local TableUtil = require("@packages/tableUtil")
 	@param tbl {T} -- Table to copy
 	@return {T} -- Deep copied table
 ]=]
-local function copy<T>(tbl: { T }): { T }
-	return TableUtil.Copy(tbl, true)
-end
+local function copy <T>(tbl: { T }): { T } return TableUtil.Copy (tbl, true) end
 
 --[=[
 	Synchronizes source table with template (deep sync)
@@ -27,9 +25,7 @@ end
 	@param template {T} -- Template table
 	@return {T} -- Synchronized table
 ]=]
-local function sync<T>(src: { T }, template: { T }): { T }
-	return TableUtil.Sync(src, template)
-end
+local function sync <T>(src: { T }, template: { T }): { T } return TableUtil.Sync (src, template) end
 
 --[=[
 	Reconciles source with template (one-way sync)
@@ -38,9 +34,7 @@ end
 	@param template {T} -- Template table
 	@return {T} -- Reconciled table
 ]=]
-local function reconcile<T>(src: { T }, template: { T }): { T }
-	return TableUtil.Reconcile(src, template)
-end
+local function reconcile <T>(src: { T }, template: { T }): { T } return TableUtil.Reconcile (src, template) end
 
 --[=[
 	Maps array values through callback function
@@ -49,9 +43,7 @@ end
 	@param callback (T, number, {T}) -> U -- Transformation function
 	@return {U} -- Mapped array
 ]=]
-local function map<T, U>(tbl: { T }, callback: (T, number, { T }) -> U): { U }
-	return TableUtil.Map(tbl, callback)
-end
+local function map <T, U>(tbl: { T }, callback: (T, number, { T }) -> U): { U } return TableUtil.Map (tbl, callback) end
 
 --[=[
 	Filters array values by predicate
@@ -60,8 +52,8 @@ end
 	@param predicate (T, number, {T}) -> boolean -- Filter function
 	@return {T} -- Filtered array
 ]=]
-local function filter<T>(tbl: { T }, predicate: (T, number, { T }) -> boolean): { T }
-	return TableUtil.Filter(tbl, predicate)
+local function filter <T>(tbl: { T }, predicate: (T, number, { T }) -> boolean): { T }
+	return TableUtil.Filter (tbl, predicate)
 end
 
 --[=[
@@ -72,8 +64,8 @@ end
 	@param initial U -- Initial accumulator value
 	@return U -- Reduced value
 ]=]
-local function reduce<T, U>(tbl: { T }, callback: (U, T, number, { T }) -> U, initial: U): U
-	return TableUtil.Reduce(tbl, callback, initial)
+local function reduce <T, U>(tbl: { T }, callback: (U, T, number, { T }) -> U, initial: U): U
+	return TableUtil.Reduce (tbl, callback, initial)
 end
 
 --[=[
@@ -83,9 +75,7 @@ end
 	@param extension {T} -- Extension array
 	@return {T} -- Extended array
 ]=]
-local function extend<T>(target: { T }, extension: { T }): { T }
-	return TableUtil.Extend(target, extension)
-end
+local function extend <T>(target: { T }, extension: { T }): { T } return TableUtil.Extend (target, extension) end
 
 --[=[
 	Reverses array elements
@@ -93,9 +83,7 @@ end
 	@param tbl {T} -- Array to reverse
 	@return {T} -- Reversed array
 ]=]
-local function reverse<T>(tbl: { T }): { T }
-	return TableUtil.Reverse(tbl)
-end
+local function reverse <T>(tbl: { T }): { T } return TableUtil.Reverse (tbl) end
 
 --[=[
 	Gets table keys as array
@@ -103,9 +91,7 @@ end
 	@param tbl {[K]: V} -- Table to extract keys from
 	@return {K} -- Array of keys
 ]=]
-local function keys<K, V>(tbl: { [K]: V }): { K }
-	return TableUtil.Keys(tbl)
-end
+local function keys <K, V>(tbl: { [K]: V }): { K } return TableUtil.Keys (tbl) end
 
 --[=[
 	Gets table values as array
@@ -113,9 +99,7 @@ end
 	@param tbl {[K]: V} -- Table to extract values from
 	@return {V} -- Array of values
 ]=]
-local function values<K, V>(tbl: { [K]: V }): { V }
-	return TableUtil.Values(tbl)
-end
+local function values <K, V>(tbl: { [K]: V }): { V } return TableUtil.Values (tbl) end
 
 --[=[
 	Finds first element matching predicate
@@ -124,8 +108,8 @@ end
 	@param predicate (T, number, {T}) -> boolean -- Match function
 	@return (T?, number?) -- Found value and index, or nil
 ]=]
-local function find<T>(tbl: { T }, predicate: (T, number, { T }) -> boolean): (T?, number?)
-	return TableUtil.Find(tbl, predicate)
+local function find <T>(tbl: { T }, predicate: (T, number, { T }) -> boolean): (T?, number?)
+	return TableUtil.Find (tbl, predicate)
 end
 
 --[=[
@@ -135,8 +119,8 @@ end
 	@param predicate (T, number, {T}) -> boolean -- Test function
 	@return boolean -- True if all match
 ]=]
-local function every<T>(tbl: { T }, predicate: (T, number, { T }) -> boolean): boolean
-	return TableUtil.Every(tbl, predicate)
+local function every <T>(tbl: { T }, predicate: (T, number, { T }) -> boolean): boolean
+	return TableUtil.Every (tbl, predicate)
 end
 
 --[=[
@@ -146,8 +130,8 @@ end
 	@param predicate (T, number, {T}) -> boolean -- Test function
 	@return boolean -- True if any match
 ]=]
-local function some<T>(tbl: { T }, predicate: (T, number, { T }) -> boolean): boolean
-	return TableUtil.Some(tbl, predicate)
+local function some <T>(tbl: { T }, predicate: (T, number, { T }) -> boolean): boolean
+	return TableUtil.Some (tbl, predicate)
 end
 
 --[=[
@@ -156,9 +140,7 @@ end
 	@param tbl {any} -- Table to check
 	@return boolean -- True if empty
 ]=]
-local function isEmpty(tbl: { any }): boolean
-	return TableUtil.IsEmpty(tbl)
-end
+local function isEmpty (tbl: { any }): boolean return TableUtil.IsEmpty (tbl) end
 
 --[=[
 	Merges tables (shallow merge)
@@ -167,10 +149,10 @@ end
 	@param ... {[K]: V} -- Source tables to merge
 	@return {[K]: V} -- Merged table
 ]=]
-local function assign<K, V>(target: { [K]: V }, ...: { [K]: V }): { [K]: V }
-	local result = table.clone(target)
+local function assign <K, V>(target: { [K]: V }, ...: { [K]: V }): { [K]: V }
+	local result = table.clone (target)
 	for _, source in { ... } do
-		if type(source) == "table" then
+		if type (source) == "table" then
 			for k, v in source do
 				result[k] = v
 			end
@@ -185,14 +167,14 @@ end
 	@param tbl {T} -- Array to process
 	@return {T} -- Array with duplicates removed
 ]=]
-local function unique<T>(tbl: { T }): { T }
+local function unique <T>(tbl: { T }): { T }
 	local seen = {}
 	local result = {}
 
 	for _, v in tbl do
 		if not seen[v] then
 			seen[v] = true
-			table.insert(result, v)
+			table.insert (result, v)
 		end
 	end
 
@@ -206,9 +188,7 @@ end
 	@param depth number? -- Depth to flatten (default: 1)
 	@return {T} -- Flattened array
 ]=]
-local function flatten<T>(tbl: { T }, depth: number?): { T }
-	return TableUtil.Flat(tbl, depth or 1)
-end
+local function flatten <T>(tbl: { T }, depth: number?): { T } return TableUtil.Flat (tbl, depth or 1) end
 
 --[=[
 	Shuffles array elements randomly
@@ -216,9 +196,7 @@ end
 	@param tbl {T} -- Array to shuffle
 	@return {T} -- Shuffled array
 ]=]
-local function shuffle<T>(tbl: { T }): { T }
-	return TableUtil.Shuffle(tbl)
-end
+local function shuffle <T>(tbl: { T }): { T } return TableUtil.Shuffle (tbl) end
 
 return {
 	copy = copy,

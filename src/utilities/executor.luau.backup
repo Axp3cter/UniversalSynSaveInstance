@@ -1,0 +1,698 @@
+--[[
+	Executor Utilities - sUNC API Wrapper
+
+	Promise-based executor function wrappers following sUNC specification.
+	All sUNC API access goes through wrapped methods.
+
+	@author Aspecter
+	@version 2.0.0
+]]
+
+local Promise = require("@packages/promise")
+
+export type ExecutorResult<T> = {
+	success: boolean,
+	data: T?,
+	error: string?,
+}
+
+export type ExecutorInfo = {
+	name: string,
+	version: string?,
+	detected: boolean,
+}
+
+-- Executor detection state
+local info: ExecutorInfo = { name = "Unknown", version = nil, detected = false }
+
+--[=[
+	Gets executor identification info
+
+	@return Promise<ExecutorResult<ExecutorInfo>> -- Executor info
+]=]
+local function _identifyExecutor()
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not identifyexecutor then
+			return resolve({ success = false, error = "identifyexecutor not found" } :: ExecutorResult<ExecutorInfo>)
+		end
+
+		-- Call function safely
+		local ok, name, version = pcall(identifyexecutor)
+		resolve(
+			if ok
+				then {
+					success = true,
+					data = {
+						name = tostring(name or "Unknown"),
+						version = version and tostring(version) or nil,
+						detected = true,
+					},
+				}
+				else { success = false, error = tostring(name) } :: ExecutorResult<ExecutorInfo>
+		)
+	end)
+end
+
+--[=[
+	Gets hidden property value
+
+	@param instance Instance -- Instance to read from
+	@param property string -- Property name
+	@return Promise<ExecutorResult<any>> -- Property value or error
+]=]
+local function _getHiddenProperty(instance: Instance, property: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not gethiddenproperty then
+			return resolve({ success = false, error = "gethiddenproperty not found" } :: ExecutorResult<any>)
+		end
+
+		-- Call function safely
+		local ok, result = pcall(gethiddenproperty, instance, property)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<any>
+		)
+	end)
+end
+
+--[=[
+	Sets hidden property value
+
+	@param instance Instance -- Instance to modify
+	@param property string -- Property name
+	@param value any -- New value
+	@return Promise<ExecutorResult<nil>> -- Success or error
+]=]
+local function _setHiddenProperty(instance: Instance, property: string, value: any)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not sethiddenproperty then
+			return resolve({ success = false, error = "sethiddenproperty not found" } :: ExecutorResult<nil>)
+		end
+
+		-- Call function safely
+		local ok, result = pcall(sethiddenproperty, instance, property, value)
+		resolve(
+			if ok
+				then { success = true, data = nil }
+				else { success = false, error = tostring(result) } :: ExecutorResult<nil>
+		)
+	end)
+end
+
+--[=[
+	Gets script bytecode
+
+	@param script BaseScript | ModuleScript -- Script instance
+	@return Promise<ExecutorResult<string>> -- Bytecode or error
+]=]
+local function _getScriptBytecode(script: BaseScript | ModuleScript)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not getscriptbytecode then
+			return resolve({ success = false, error = "getscriptbytecode not found" } :: ExecutorResult<string>)
+		end
+
+		-- Call function safely
+		local ok, result = pcall(getscriptbytecode, script)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<string>
+		)
+	end)
+end
+
+--[=[
+	Gets script hash
+
+	@param script BaseScript | ModuleScript -- Script instance
+	@return Promise<ExecutorResult<string>> -- Hash or error
+]=]
+local function _getScriptHash(script: BaseScript | ModuleScript)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not getscripthash then
+			return resolve({ success = false, error = "getscripthash not found" } :: ExecutorResult<string>)
+		end
+
+		-- Call function safely
+		local ok, result = pcall(getscripthash, script)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<string>
+		)
+	end)
+end
+
+--[=[
+	Clones instance reference
+
+	@param object Instance -- Instance to clone
+	@return Promise<ExecutorResult<Instance>> -- Cloned reference or original
+]=]
+local function _cloneRef<T>(object: T & Instance)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not cloneref then
+			return resolve({ success = false, error = "cloneref not found" } :: ExecutorResult<T & Instance>)
+		end
+
+		-- Call function safely
+		local ok, result = pcall(cloneref, object)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<T & Instance>
+		)
+	end)
+end
+
+--[=[
+	Sets thread identity level
+
+	@param identity number -- Identity level (0-8)
+	@return Promise<ExecutorResult<nil>> -- Success or error
+]=]
+local function _setThreadIdentity(identity: number)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not setthreadidentity then
+			return resolve({ success = false, error = "setthreadidentity not found" } :: ExecutorResult<nil>)
+		end
+
+		-- Call function safely
+		local ok = pcall(setthreadidentity, identity)
+		resolve(
+			if ok
+				then { success = true, data = nil }
+				else { success = false, error = "Failed to set thread identity" } :: ExecutorResult<nil>
+		)
+	end)
+end
+
+--[=[
+	Gets current thread identity level
+
+	@return Promise<ExecutorResult<number>> -- Identity level
+]=]
+local function _getThreadIdentity()
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not getthreadidentity then
+			return resolve({ success = false, error = "getthreadidentity not found" } :: ExecutorResult<number>)
+		end
+
+		-- Call function safely
+		local ok, result = pcall(getthreadidentity)
+		resolve(
+			if ok and type(result) == "number"
+				then { success = true, data = result }
+				else { success = false, error = "Failed to get thread identity" } :: ExecutorResult<number>
+		)
+	end)
+end
+
+--[=[
+	Encodes string to base64
+
+	@param data string -- Data to encode
+	@return Promise<ExecutorResult<string>> -- Encoded data or error
+]=]
+local function _base64Encode(data: string)
+	return Promise.defer(function(resolve)
+		-- Check if crypt table and function exist
+		if not crypt or not crypt.base64encode then
+			return resolve({ success = false, error = "crypt.base64encode not found" } :: ExecutorResult<string>)
+		end
+
+		-- Encode data safely
+		local ok, result = pcall(crypt.base64encode, data)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<string>
+		)
+	end)
+end
+
+--[=[
+	Decodes base64 string
+
+	@param data string -- Data to decode
+	@return Promise<ExecutorResult<string>> -- Decoded data or error
+]=]
+local function _base64Decode(data: string)
+	return Promise.defer(function(resolve)
+		-- Check if crypt table and function exist
+		if not crypt or not crypt.base64decode then
+			return resolve({ success = false, error = "crypt.base64decode not found" } :: ExecutorResult<string>)
+		end
+
+		-- Decode data safely
+		local ok, result = pcall(crypt.base64decode, data)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<string>
+		)
+	end)
+end
+
+--[=[
+	Computes SHA384 hash
+
+	@param data string -- Data to hash
+	@return Promise<ExecutorResult<string>> -- Hash or error
+]=]
+local function _sha384Hash(data: string)
+	return Promise.defer(function(resolve)
+		-- Check if crypt table and hash function exist
+		if not crypt or not crypt.hash then
+			return resolve({ success = false, error = "crypt.hash not found" } :: ExecutorResult<string>)
+		end
+
+		-- Compute hash safely
+		local ok, result = pcall(crypt.hash, data, "sha384")
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<string>
+		)
+	end)
+end
+
+--[=[
+	Checks if path is a file
+
+	@param path string -- Path to check
+	@return Promise<ExecutorResult<boolean>> -- True if file exists
+]=]
+local function _isFile(path: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not isfile then
+			return resolve({ success = false, error = "isfile not found" } :: ExecutorResult<boolean>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if file exists
+		local ok, result = pcall(isfile, normalizedPath)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<boolean>
+		)
+	end)
+end
+
+--[=[
+	Checks if path is a directory
+
+	@param path string -- Path to check
+	@return Promise<ExecutorResult<boolean>> -- True if directory exists
+]=]
+local function _isFolder(path: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not isfolder then
+			return resolve({ success = false, error = "isfolder not found" } :: ExecutorResult<boolean>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if folder exists
+		local ok, result = pcall(isfolder, normalizedPath)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<boolean>
+		)
+	end)
+end
+
+--[=[
+	Creates directory
+
+	@param path string -- Directory path
+	@return Promise<ExecutorResult<nil>> -- Success or error
+]=]
+local function _createFolder(path: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not makefolder then
+			return resolve({ success = false, error = "makefolder not found" } :: ExecutorResult<nil>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if already exists
+		_isFolder(normalizedPath):andThen(function(folderCheck)
+			if folderCheck.success and folderCheck.data then
+				return resolve({ success = true, data = nil } :: ExecutorResult<nil>)
+			end
+
+			-- Create folder safely
+			local ok = pcall(makefolder, normalizedPath)
+			resolve(
+				if ok
+					then { success = true, data = nil }
+					else { success = false, error = "Failed to create folder" } :: ExecutorResult<nil>
+			)
+		end):catch(function(err)
+			resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
+		end)
+	end)
+end
+
+--[=[
+	Reads file contents
+
+	@param path string -- File path
+	@return Promise<ExecutorResult<string>> -- File contents or error
+]=]
+local function _readFile(path: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not readfile then
+			return resolve({ success = false, error = "readfile not found" } :: ExecutorResult<string>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if file exists
+		_isFile(normalizedPath):andThen(function(fileCheck)
+			if not fileCheck.success then
+				return resolve({ success = false, error = fileCheck.error or "Failed to check file" } :: ExecutorResult<string>)
+			end
+
+			if not fileCheck.data then
+				return resolve({ success = false, error = `File not found: {normalizedPath}` } :: ExecutorResult<string>)
+			end
+
+			-- Read file safely
+			local ok, data = pcall(readfile, normalizedPath)
+			resolve(
+				if ok
+					then { success = true, data = data }
+					else { success = false, error = tostring(data) } :: ExecutorResult<string>
+			)
+		end):catch(function(err)
+			resolve({ success = false, error = tostring(err) } :: ExecutorResult<string>)
+		end)
+	end)
+end
+
+--[=[
+	Writes content to file
+
+	@param path string -- File path
+	@param content string -- Content to write
+	@return Promise<ExecutorResult<nil>> -- Success or error
+]=]
+local function _writeFile(path: string, content: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not writefile then
+			return resolve({ success = false, error = "writefile not found" } :: ExecutorResult<nil>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Ensure parent directory exists
+		local dir = normalizedPath:match("^(.+)/")
+		if dir then
+			_createFolder(dir):andThen(function(createResult)
+				if not createResult.success then
+					return resolve({ success = false, error = createResult.error or "Failed to create directory" } :: ExecutorResult<nil>)
+				end
+
+				-- Write file safely
+				local ok = pcall(writefile, normalizedPath, content)
+				resolve(
+					if ok
+						then { success = true, data = nil }
+						else { success = false, error = "Failed to write file" } :: ExecutorResult<nil>
+				)
+			end):catch(function(err)
+				resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
+			end)
+		else
+			-- Write file safely (no directory needed)
+			local ok = pcall(writefile, normalizedPath, content)
+			resolve(
+				if ok
+					then { success = true, data = nil }
+					else { success = false, error = "Failed to write file" } :: ExecutorResult<nil>
+			)
+		end
+	end)
+end
+
+--[=[
+	Appends content to file
+
+	@param path string -- File path
+	@param content string -- Content to append
+	@return Promise<ExecutorResult<nil>> -- Success or error
+]=]
+local function _appendFile(path: string, content: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not appendfile then
+			return resolve({ success = false, error = "appendfile not found" } :: ExecutorResult<nil>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if file exists
+		_isFile(normalizedPath):andThen(function(fileCheck)
+			if not fileCheck.success then
+				return resolve({ success = false, error = fileCheck.error or "Failed to check file" } :: ExecutorResult<nil>)
+			end
+
+			if not fileCheck.data then
+				return resolve({ success = false, error = `File not found: {normalizedPath}` } :: ExecutorResult<nil>)
+			end
+
+			-- Append to file safely
+			local ok = pcall(appendfile, normalizedPath, content)
+			resolve(
+				if ok
+					then { success = true, data = nil }
+					else { success = false, error = "Failed to append to file" } :: ExecutorResult<nil>
+			)
+		end):catch(function(err)
+			resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
+		end)
+	end)
+end
+
+--[=[
+	Deletes file
+
+	@param path string -- File path
+	@return Promise<ExecutorResult<nil>> -- Success or error
+]=]
+local function _deleteFile(path: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not delfile then
+			return resolve({ success = false, error = "delfile not found" } :: ExecutorResult<nil>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if file exists
+		_isFile(normalizedPath):andThen(function(fileCheck)
+			if not fileCheck.success then
+				return resolve({ success = false, error = fileCheck.error or "Failed to check file" } :: ExecutorResult<nil>)
+			end
+
+			if not fileCheck.data then
+				return resolve({ success = false, error = `File not found: {normalizedPath}` } :: ExecutorResult<nil>)
+			end
+
+			-- Delete file safely
+			local ok = pcall(delfile, normalizedPath)
+			resolve(
+				if ok
+					then { success = true, data = nil }
+					else { success = false, error = "Failed to delete file" } :: ExecutorResult<nil>
+			)
+		end):catch(function(err)
+			resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
+		end)
+	end)
+end
+
+--[=[
+	Lists directory contents
+
+	@param path string -- Directory path
+	@return Promise<ExecutorResult<{string}>> -- File list or error
+]=]
+local function _listFiles(path: string)
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not listfiles then
+			return resolve({ success = false, error = "listfiles not found" } :: ExecutorResult<{ string }>)
+		end
+
+		-- Normalize path
+		local normalizedPath = path:gsub("\\", "/")
+
+		-- Check if directory exists
+		_isFolder(normalizedPath):andThen(function(folderCheck)
+			if not folderCheck.success then
+				return resolve({
+					success = false,
+					error = folderCheck.error or "Failed to check folder",
+				} :: ExecutorResult<{ string }>)
+			end
+
+			if not folderCheck.data then
+				return resolve({
+					success = false,
+					error = `Directory not found: {normalizedPath}`,
+				} :: ExecutorResult<{ string }>)
+			end
+
+			-- List files safely
+			local ok, files = pcall(listfiles, normalizedPath)
+			resolve(
+				if ok
+					then { success = true, data = files }
+					else { success = false, error = tostring(files) } :: ExecutorResult<{ string }>
+			)
+		end):catch(function(err)
+			resolve({ success = false, error = tostring(err) } :: ExecutorResult<{ string }>)
+		end)
+	end)
+end
+
+--[=[
+	Gets global environment
+
+	@return Promise<ExecutorResult<table>> -- Global environment table
+]=]
+local function _getgenv()
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not getgenv then
+			return resolve({ success = false, error = "getgenv not found" } :: ExecutorResult<{ [any]: any }>)
+		end
+
+		-- Call function safely
+		local ok, result = pcall(getgenv)
+		resolve(
+			if ok
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<{ [any]: any }>
+		)
+	end)
+end
+
+--[=[
+	Gets nil instances (unparented instances)
+
+	@return Promise<ExecutorResult<{Instance}>> -- List of nil instances
+]=]
+local function _getNilInstances()
+	return Promise.defer(function(resolve)
+		-- Check if function exists
+		if not getnilinstances then
+			return resolve({ success = false, error = "getnilinstances not found" } :: ExecutorResult<{ Instance }>)
+		end
+
+		-- Call function safely
+		local ok, result = pcall(getnilinstances)
+		resolve(
+			if ok and type(result) == "table"
+				then { success = true, data = result }
+				else { success = false, error = tostring(result) } :: ExecutorResult<{ Instance }>
+		)
+	end)
+end
+
+--[=[
+	Checks if function exists in executor environment
+
+	@param name string -- Function name (supports nested: "crypt.base64encode")
+	@return boolean -- True if function exists
+]=]
+local function hasFunction(name: string): boolean
+	-- Check if getgenv exists
+	if not getgenv then
+		return false
+	end
+
+	-- Get global environment
+	local ok, env = pcall(getgenv)
+	if not ok then
+		return false
+	end
+
+	local parts = string.split(name, ".")
+	local current = env
+
+	-- Traverse nested path
+	for _, part in parts do
+		if type(current) ~= "table" then
+			return false
+		end
+		current = current[part]
+		if not current then
+			return false
+		end
+	end
+
+	return true
+end
+
+-- Initialize executor info on module load
+_identifyExecutor():andThen(function(result)
+	if result.success and result.data then
+		info.name = result.data.name
+		info.version = result.data.version
+		info.detected = result.data.detected
+	end
+end)
+
+return {
+	info = info,
+	getgenv = _getgenv,
+	identifyExecutor = _identifyExecutor,
+	getHiddenProperty = _getHiddenProperty,
+	setHiddenProperty = _setHiddenProperty,
+	getScriptBytecode = _getScriptBytecode,
+	getScriptHash = _getScriptHash,
+	cloneRef = _cloneRef,
+	setThreadIdentity = _setThreadIdentity,
+	getThreadIdentity = _getThreadIdentity,
+	base64Encode = _base64Encode,
+	base64Decode = _base64Decode,
+	sha384Hash = _sha384Hash,
+	getNilInstances = _getNilInstances,
+	readFile = _readFile,
+	writeFile = _writeFile,
+	appendFile = _appendFile,
+	deleteFile = _deleteFile,
+	listFiles = _listFiles,
+	createFolder = _createFolder,
+	isFile = _isFile,
+	isFolder = _isFolder,
+	hasFunction = hasFunction,
+}

@@ -9,7 +9,8 @@
 ]]
 
 return {
-	Document = require("@core/xml/document"),
-	Instance = require("@core/xml/instance"),
-	Properties = require("@core/xml/properties"),
+	Document = require ("@core/xml/document"),
+	Instance = require ("@core/xml/instance"),
+	Properties = require ("@core/xml/properties"),
+	Attributes = require ("@core/xml/attributes"),
 }

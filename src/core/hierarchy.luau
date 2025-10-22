@@ -13,7 +13,7 @@ export type Node = {
 	children: { Node },
 }
 
-local function build(instances: { Instance }): { Node }
+local function build (instances: { Instance }): { Node }
 	local nodes: { [Instance]: Node } = {}
 	local roots: { Node } = {}
 
@@ -29,9 +29,9 @@ local function build(instances: { Instance }): { Node }
 		local parentNode = if parent then nodes[parent] else nil
 
 		if parentNode then
-			table.insert(parentNode.children, node)
+			table.insert (parentNode.children, node)
 		else
-			table.insert(roots, node)
+			table.insert (roots, node)
 		end
 	end
 
@@ -41,4 +41,3 @@ end
 return {
 	build = build,
 }
-

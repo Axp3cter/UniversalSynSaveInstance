@@ -1,675 +1,607 @@
 --[[
-	Executor Utilities - sUNC API Wrapper
+	Executor Utilities - sUNC API Standard Wrapper
 
-	Promise-based executor function wrappers following sUNC specification.
-	All sUNC API access goes through wrapped methods.
+	Provides access to sUNC-compliant executor APIs with proper validation and fallbacks.
+	All operations are synchronous as per sUNC specification - no Promise overhead.
+
+	Reference: https://docs.sunc.su/
 
 	@author Aspecter
-	@version 2.0.0
+	@version 3.0.0
+	@since 2025-01-21
 ]]
 
-local Promise = require("@packages/promise")
+local Types = require ("@types")
 
-export type ExecutorResult<T> = {
-	success: boolean,
-	data: T?,
-	error: string?,
-}
+export type Result<T> = Types.Result<T>
+export type ExecutorInfo = Types.ExecutorInfo
 
-export type ExecutorInfo = {
-	name: string,
-	version: string?,
-	detected: boolean,
-}
-
--- Executor detection state
-local info: ExecutorInfo = { name = "Unknown", version = nil, detected = false }
+-- ============================================================================
+-- UTILITIES
+-- ============================================================================
 
 --[=[
-	Gets executor identification info
+	Normalizes file path to forward slashes
 
-	@return Promise<ExecutorResult<ExecutorInfo>> -- Executor info
+	@param path string -- Path to normalize
+	@return string -- Normalized path
 ]=]
-local function _identifyExecutor()
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not identifyexecutor then
-			return resolve({ success = false, error = "identifyexecutor not found" } :: ExecutorResult<ExecutorInfo>)
-		end
+local function normalizePath (path: string): string return path:gsub ("\\", "/") end
 
-		-- Call function safely
-		local ok, name, version = pcall(identifyexecutor)
-		resolve(
-			if ok
-				then {
-					success = true,
-					data = {
-						name = tostring(name or "Unknown"),
-						version = version and tostring(version) or nil,
-						detected = true,
-					},
-				}
-				else { success = false, error = tostring(name) } :: ExecutorResult<ExecutorInfo>
-		)
-	end)
+--[=[
+	Safe call wrapper with error conversion
+
+	@param fn function -- Function to call
+	@param ... any -- Arguments
+	@return Result<T> -- Result with data or error
+]=]
+local function trySafe <T>(fn: (...any) -> T, ...: any): Result<T>
+	local ok, result = pcall (fn, ...)
+	if ok then
+		return { success = true, data = result }
+	else
+		return { success = false, error = tostring (result) }
+	end
+end
+
+-- ============================================================================
+-- sUNC API DETECTION & VALIDATION
+-- ============================================================================
+
+--[=[
+	Checks if function exists in global environment
+
+	Supports nested paths like "crypt.base64encode"
+
+	@param name string -- Function name (supports dot notation)
+	@return boolean -- True if function exists
+]=]
+local function hasFunction (name: string): boolean
+	local parts = string.split (name, ".")
+	local current: any = _G
+
+	for _, part in parts do
+		if type (current) ~= "table" then return false end
+		current = current[part]
+		if current == nil then return false end
+	end
+
+	return type (current) == "function"
 end
 
 --[=[
-	Gets hidden property value
+	Gets function from global environment
 
-	@param instance Instance -- Instance to read from
-	@param property string -- Property name
-	@return Promise<ExecutorResult<any>> -- Property value or error
+	@param name string -- Function name (supports dot notation)
+	@return function? -- Function or nil
 ]=]
-local function _getHiddenProperty(instance: Instance, property: string)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not gethiddenproperty then
-			return resolve({ success = false, error = "gethiddenproperty not found" } :: ExecutorResult<any>)
-		end
+local function getFunction (name: string): ((...any) -> ...any)?
+	local parts = string.split (name, ".")
+	local current: any = _G
 
-		-- Call function safely
-		local ok, result = pcall(gethiddenproperty, instance, property)
-		resolve(
-			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<any>
-		)
-	end)
+	for _, part in parts do
+		if type (current) ~= "table" then return nil end
+		current = current[part]
+		if current == nil then return nil end
+	end
+
+	return if type (current) == "function" then current else nil
+end
+
+-- ============================================================================
+-- EXECUTOR IDENTIFICATION
+-- ============================================================================
+
+local executorInfo: ExecutorInfo = { name = "Unknown", version = nil, detected = false }
+
+-- Initialize executor info on load
+do
+	local identifyFn = identifyexecutor or getexecutorname or whatexecutor
+
+	if identifyFn then
+		local ok, name, version = pcall (identifyFn)
+		if ok and name then
+			executorInfo.name = tostring (name)
+			executorInfo.version = version and tostring (version) or nil
+			executorInfo.detected = true
+		end
+	end
+end
+
+-- ============================================================================
+-- DIRECT sUNC API ACCESS
+-- ============================================================================
+
+--[=[
+	Direct sUNC API table - exact function names per specification
+
+	Access raw sUNC functions directly without wrappers.
+	All functions return their native types.
+	Check existence before use.
+
+	@class api
+]=]
+local api = {
+	-- Reflection
+	gethiddenproperty = gethiddenproperty,
+	sethiddenproperty = sethiddenproperty,
+	gethiddenproperties = gethiddenproperties,
+	setthreadidentity = setthreadidentity or setthreadcontext or setidentity,
+	getthreadidentity = getthreadidentity or getthreadcontext or getidentity,
+
+	-- Scripts
+	getscriptbytecode = getscriptbytecode or dumpstring,
+	getscripthash = getscripthash,
+	decompile = decompile,
+	getsenv = getsenv,
+	getloadedmodules = getloadedmodules,
+	getrunningscripts = getrunningscripts,
+	getscriptclosure = getscriptclosure,
+
+	-- Instances
+	cloneref = cloneref,
+	compareinstances = compareinstances,
+	getnilinstances = getnilinstances,
+	getinstances = getinstances,
+	gethui = gethui or get_hidden_gui,
+
+	-- Cryptography (nested in crypt table)
+	crypt = {
+		base64encode = crypt and crypt.base64encode or crypt and crypt.base64_encode,
+		base64decode = crypt and crypt.base64decode or crypt and crypt.base64_decode,
+		hash = crypt and crypt.hash,
+		encrypt = crypt and crypt.encrypt,
+		decrypt = crypt and crypt.decrypt,
+		generatekey = crypt and crypt.generatekey,
+		derivekeypbkdf2 = crypt and crypt.derivekeypbkdf2,
+		generatebytes = crypt and crypt.generatebytes,
+	},
+
+	-- Debug
+	debug = {
+		getconstants = debug.getconstants,
+		getconstant = debug.getconstant,
+		setconstant = debug.setconstant,
+		getupvalues = debug.getupvalues,
+		getupvalue = debug.getupvalue,
+		setupvalue = debug.setupvalue,
+		getstack = debug.getstack,
+		setstack = debug.setstack,
+		getinfo = debug.getinfo,
+		getproto = debug.getproto,
+		getprotos = debug.getprotos,
+	},
+
+	-- Closures
+	hookfunction = hookfunction or replaceclosure,
+	restorefunction = restorefunction,
+	clonefunction = clonefunction,
+	newcclosure = newcclosure,
+	iscclosure = iscclosure,
+	islclosure = islclosure,
+	isexecutorclosure = isexecutorclosure or checkcaller or is_syn_closure,
+
+	-- Environment
+	getgenv = getgenv,
+	getrenv = getrenv,
+	getmenv = getmenv,
+
+	-- Filesystem
+	isfile = isfile,
+	isfolder = isfolder,
+	readfile = readfile,
+	writefile = writefile,
+	appendfile = appendfile,
+	makefolder = makefolder,
+	delfolder = delfolder,
+	delfile = delfile,
+	listfiles = listfiles,
+}
+
+-- ============================================================================
+-- FALLBACK IMPLEMENTATIONS
+-- ============================================================================
+
+--[=[
+	Fallback for gethiddenproperty using UGCValidationService
+
+	@param instance Instance
+	@param propertyName string
+	@return any -- Property value or nil
+]=]
+local function gethiddenproperty_fallback (instance: Instance, propertyName: string): any
+	local ok, UGCValidationService = pcall (function () return game:GetService ("UGCValidationService") end)
+
+	if not ok then return nil end
+
+	local success, result = pcall (function () return UGCValidationService:GetPropertyValue (instance, propertyName) end)
+
+	return if success then result else nil
+end
+
+--[=[
+	Fallback for base64 encoding using Reselim's implementation
+
+	@param data string
+	@return string -- Encoded data
+]=]
+local base64encode_fallback: ((data: string) -> string)?
+
+-- Try to load Reselim's Base64 library as fallback
+do
+	if not api.crypt.base64encode then
+		local ok, result = pcall (function ()
+			local code = game:HttpGet ("https://raw.githubusercontent.com/Reselim/Base64/master/Base64.lua", true)
+			local Base64 = loadstring (code, "Base64") ()
+
+			return function (raw: string): string return buffer.tostring (Base64.encode (buffer.fromstring (raw))) end
+		end)
+
+		if ok and result then base64encode_fallback = result end
+	end
+end
+
+-- ============================================================================
+-- SAFE WRAPPED FUNCTIONS
+-- ============================================================================
+
+--[=[
+	Gets hidden property value with fallback
+
+	@param instance Instance
+	@param property string
+	@return Result<any>
+]=]
+local function getHiddenProperty (instance: Instance, property: string): Result<any>
+	if api.gethiddenproperty then
+		local ok, value = pcall (api.gethiddenproperty, instance, property)
+		if ok then return { success = true, data = value } end
+	end
+
+	-- Fallback to UGCValidationService
+	local value = gethiddenproperty_fallback (instance, property)
+	return { success = true, data = value }
 end
 
 --[=[
 	Sets hidden property value
 
-	@param instance Instance -- Instance to modify
-	@param property string -- Property name
-	@param value any -- New value
-	@return Promise<ExecutorResult<nil>> -- Success or error
+	@param instance Instance
+	@param property string
+	@param value any
+	@return Result<nil>
 ]=]
-local function _setHiddenProperty(instance: Instance, property: string, value: any)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not sethiddenproperty then
-			return resolve({ success = false, error = "sethiddenproperty not found" } :: ExecutorResult<nil>)
-		end
+local function setHiddenProperty (instance: Instance, property: string, value: any): Result<nil>
+	if not api.sethiddenproperty then return { success = false, error = "sethiddenproperty not available" } end
 
-		-- Call function safely
-		local ok, result = pcall(sethiddenproperty, instance, property, value)
-		resolve(
-			if ok
-				then { success = true, data = nil }
-				else { success = false, error = tostring(result) } :: ExecutorResult<nil>
-		)
-	end)
+	return trySafe (api.sethiddenproperty, instance, property, value)
 end
 
 --[=[
 	Gets script bytecode
 
-	@param script BaseScript | ModuleScript -- Script instance
-	@return Promise<ExecutorResult<string>> -- Bytecode or error
+	@param script LuaSourceContainer
+	@return Result<string>
 ]=]
-local function _getScriptBytecode(script: BaseScript | ModuleScript)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not getscriptbytecode then
-			return resolve({ success = false, error = "getscriptbytecode not found" } :: ExecutorResult<string>)
-		end
+local function getScriptBytecode (script: LuaSourceContainer): Result<string>
+	if not api.getscriptbytecode then return { success = false, error = "getscriptbytecode not available" } end
 
-		-- Call function safely
-		local ok, result = pcall(getscriptbytecode, script)
-		resolve(
-			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<string>
-		)
-	end)
+	return trySafe (api.getscriptbytecode, script)
 end
 
 --[=[
 	Gets script hash
 
-	@param script BaseScript | ModuleScript -- Script instance
-	@return Promise<ExecutorResult<string>> -- Hash or error
+	@param script LuaSourceContainer
+	@return Result<string>
 ]=]
-local function _getScriptHash(script: BaseScript | ModuleScript)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not getscripthash then
-			return resolve({ success = false, error = "getscripthash not found" } :: ExecutorResult<string>)
-		end
+local function getScriptHash (script: LuaSourceContainer): Result<string>
+	if not api.getscripthash then return { success = false, error = "getscripthash not available" } end
 
-		-- Call function safely
-		local ok, result = pcall(getscripthash, script)
-		resolve(
-			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<string>
-		)
-	end)
+	return trySafe (api.getscripthash, script)
 end
 
 --[=[
 	Clones instance reference
 
-	@param object Instance -- Instance to clone
-	@return Promise<ExecutorResult<Instance>> -- Cloned reference or original
+	@param instance Instance
+	@return Result<Instance>
 ]=]
-local function _cloneRef<T>(object: T & Instance)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not cloneref then
-			return resolve({ success = false, error = "cloneref not found" } :: ExecutorResult<T & Instance>)
-		end
+local function cloneRef <T>(instance: T & Instance): Result<T & Instance>
+	if not api.cloneref then
+		return { success = true, data = instance } -- Return original if not available
+	end
 
-		-- Call function safely
-		local ok, result = pcall(cloneref, object)
-		resolve(
-			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<T & Instance>
-		)
-	end)
+	return trySafe (api.cloneref, instance)
 end
 
 --[=[
 	Sets thread identity level
 
 	@param identity number -- Identity level (0-8)
-	@return Promise<ExecutorResult<nil>> -- Success or error
+	@return Result<nil>
 ]=]
-local function _setThreadIdentity(identity: number)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not setthreadidentity then
-			return resolve({ success = false, error = "setthreadidentity not found" } :: ExecutorResult<nil>)
-		end
+local function setThreadIdentity (identity: number): Result<nil>
+	if not api.setthreadidentity then return { success = false, error = "setthreadidentity not available" } end
 
-		-- Call function safely
-		local ok = pcall(setthreadidentity, identity)
-		resolve(
-			if ok
-				then { success = true, data = nil }
-				else { success = false, error = "Failed to set thread identity" } :: ExecutorResult<nil>
-		)
-	end)
+	return trySafe (api.setthreadidentity, identity)
 end
 
 --[=[
 	Gets current thread identity level
 
-	@return Promise<ExecutorResult<number>> -- Identity level
+	@return Result<number>
 ]=]
-local function _getThreadIdentity()
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not getthreadidentity then
-			return resolve({ success = false, error = "getthreadidentity not found" } :: ExecutorResult<number>)
-		end
+local function getThreadIdentity (): Result<number>
+	if not api.getthreadidentity then return { success = false, error = "getthreadidentity not available" } end
 
-		-- Call function safely
-		local ok, result = pcall(getthreadidentity)
-		resolve(
-			if ok and type(result) == "number"
-				then { success = true, data = result }
-				else { success = false, error = "Failed to get thread identity" } :: ExecutorResult<number>
-		)
-	end)
+	return trySafe (api.getthreadidentity)
 end
 
 --[=[
-	Encodes string to base64
+	Encodes string to base64 with fallback
 
-	@param data string -- Data to encode
-	@return Promise<ExecutorResult<string>> -- Encoded data or error
+	@param data string
+	@return Result<string>
 ]=]
-local function _base64Encode(data: string)
-	return Promise.defer(function(resolve)
-		-- Check if crypt table and function exist
-		if not crypt or not crypt.base64encode then
-			return resolve({ success = false, error = "crypt.base64encode not found" } :: ExecutorResult<string>)
-		end
+local function base64Encode (data: string): Result<string>
+	if api.crypt.base64encode then
+		local result = trySafe (api.crypt.base64encode, data)
+		if result.success then return result end
+	end
 
-		-- Encode data safely
-		local ok, result = pcall(crypt.base64encode, data)
-		resolve(
-			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<string>
-		)
-	end)
+	-- Try fallback
+	if base64encode_fallback then return trySafe (base64encode_fallback, data) end
+
+	return { success = false, error = "base64encode not available" }
 end
 
 --[=[
 	Decodes base64 string
 
-	@param data string -- Data to decode
-	@return Promise<ExecutorResult<string>> -- Decoded data or error
+	@param data string
+	@return Result<string>
 ]=]
-local function _base64Decode(data: string)
-	return Promise.defer(function(resolve)
-		-- Check if crypt table and function exist
-		if not crypt or not crypt.base64decode then
-			return resolve({ success = false, error = "crypt.base64decode not found" } :: ExecutorResult<string>)
-		end
+local function base64Decode (data: string): Result<string>
+	if not api.crypt.base64decode then return { success = false, error = "base64decode not available" } end
 
-		-- Decode data safely
-		local ok, result = pcall(crypt.base64decode, data)
-		resolve(
-			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<string>
-		)
-	end)
+	return trySafe (api.crypt.base64decode, data)
+end
+
+--[=[
+	Computes hash using crypt.hash
+
+	@param data string
+	@param algorithm string -- Hash algorithm (e.g., "sha384", "md5")
+	@return Result<string>
+]=]
+local function hash (data: string, algorithm: string): Result<string>
+	if not api.crypt.hash then return { success = false, error = "crypt.hash not available" } end
+
+	return trySafe (api.crypt.hash, data, algorithm)
 end
 
 --[=[
 	Computes SHA384 hash
 
-	@param data string -- Data to hash
-	@return Promise<ExecutorResult<string>> -- Hash or error
+	@param data string
+	@return Result<string>
 ]=]
-local function _sha384Hash(data: string)
-	return Promise.defer(function(resolve)
-		-- Check if crypt table and hash function exist
-		if not crypt or not crypt.hash then
-			return resolve({ success = false, error = "crypt.hash not found" } :: ExecutorResult<string>)
-		end
+local function sha384Hash (data: string): Result<string> return hash (data, "sha384") end
 
-		-- Compute hash safely
-		local ok, result = pcall(crypt.hash, data, "sha384")
-		resolve(
-			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<string>
-		)
-	end)
+--[=[
+	Gets nil instances (unparented instances)
+
+	@return Result<{Instance}>
+]=]
+local function getNilInstances (): Result<{ Instance }>
+	if not api.getnilinstances then return { success = false, error = "getnilinstances not available" } end
+
+	return trySafe (api.getnilinstances)
 end
+
+--[=[
+	Gets global environment table
+
+	@return Result<{[any]: any}>
+]=]
+local function getgenv (): Result<{ [any]: any }>
+	if not api.getgenv then return { success = false, error = "getgenv not available" } end
+
+	return trySafe (api.getgenv)
+end
+
+-- ============================================================================
+-- FILESYSTEM OPERATIONS
+-- ============================================================================
 
 --[=[
 	Checks if path is a file
 
-	@param path string -- Path to check
-	@return Promise<ExecutorResult<boolean>> -- True if file exists
+	@param path string
+	@return Result<boolean>
 ]=]
-local function _isFile(path: string)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not isfile then
-			return resolve({ success = false, error = "isfile not found" } :: ExecutorResult<boolean>)
-		end
+local function isFile (path: string): Result<boolean>
+	if not api.isfile then return { success = false, error = "isfile not available" } end
 
-		-- Normalize path
-		local normalizedPath = path:gsub("\\", "/")
-
-		-- Check if file exists
-		local ok, result = pcall(isfile, normalizedPath)
-		resolve(
-			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<boolean>
-		)
-	end)
+	return trySafe (api.isfile, normalizePath (path))
 end
 
 --[=[
-	Checks if path is a directory
+	Checks if path is a folder
 
-	@param path string -- Path to check
-	@return Promise<ExecutorResult<boolean>> -- True if directory exists
+	@param path string
+	@return Result<boolean>
 ]=]
-local function _isFolder(path: string)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not isfolder then
-			return resolve({ success = false, error = "isfolder not found" } :: ExecutorResult<boolean>)
-		end
+local function isFolder (path: string): Result<boolean>
+	if not api.isfolder then return { success = false, error = "isfolder not available" } end
 
-		-- Normalize path
-		local normalizedPath = path:gsub("\\", "/")
-
-		-- Check if folder exists
-		local ok, result = pcall(isfolder, normalizedPath)
-		resolve(
-			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<boolean>
-		)
-	end)
+	return trySafe (api.isfolder, normalizePath (path))
 end
 
 --[=[
-	Creates directory
+	Creates folder (ensures directory exists)
 
-	@param path string -- Directory path
-	@return Promise<ExecutorResult<nil>> -- Success or error
+	@param path string
+	@return Result<nil>
 ]=]
-local function _createFolder(path: string)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not makefolder then
-			return resolve({ success = false, error = "makefolder not found" } :: ExecutorResult<nil>)
-		end
+local function createFolder (path: string): Result<nil>
+	if not api.makefolder then return { success = false, error = "makefolder not available" } end
 
-		-- Normalize path
-		local normalizedPath = path:gsub("\\", "/")
+	local normalized = normalizePath (path)
 
-		-- Check if already exists
-		_isFolder(normalizedPath):andThen(function(folderCheck)
-			if folderCheck.success and folderCheck.data then
-				return resolve({ success = true, data = nil } :: ExecutorResult<nil>)
-			end
+	-- Check if already exists
+	local folderCheck = isFolder (normalized)
+	if folderCheck.success and folderCheck.data then return { success = true } end
 
-			-- Create folder safely
-			local ok = pcall(makefolder, normalizedPath)
-			resolve(
-				if ok
-					then { success = true, data = nil }
-					else { success = false, error = "Failed to create folder" } :: ExecutorResult<nil>
-			)
-		end):catch(function(err)
-			resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
-		end)
-	end)
+	return trySafe (api.makefolder, normalized)
 end
 
 --[=[
 	Reads file contents
 
-	@param path string -- File path
-	@return Promise<ExecutorResult<string>> -- File contents or error
+	@param path string
+	@return Result<string>
 ]=]
-local function _readFile(path: string)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not readfile then
-			return resolve({ success = false, error = "readfile not found" } :: ExecutorResult<string>)
-		end
+local function readFile (path: string): Result<string>
+	if not api.readfile then return { success = false, error = "readfile not available" } end
 
-		-- Normalize path
-		local normalizedPath = path:gsub("\\", "/")
+	local normalized = normalizePath (path)
 
-		-- Check if file exists
-		_isFile(normalizedPath):andThen(function(fileCheck)
-			if not fileCheck.success then
-				return resolve({ success = false, error = fileCheck.error or "Failed to check file" } :: ExecutorResult<string>)
-			end
+	-- Check if file exists
+	local fileCheck = isFile (normalized)
+	if fileCheck.success and not fileCheck.data then
+		return { success = false, error = `File not found: {normalized}` }
+	end
 
-			if not fileCheck.data then
-				return resolve({ success = false, error = `File not found: {normalizedPath}` } :: ExecutorResult<string>)
-			end
-
-			-- Read file safely
-			local ok, data = pcall(readfile, normalizedPath)
-			resolve(
-				if ok
-					then { success = true, data = data }
-					else { success = false, error = tostring(data) } :: ExecutorResult<string>
-			)
-		end):catch(function(err)
-			resolve({ success = false, error = tostring(err) } :: ExecutorResult<string>)
-		end)
-	end)
+	return trySafe (api.readfile, normalized)
 end
 
 --[=[
-	Writes content to file
+	Writes content to file (creates parent directories if needed)
 
-	@param path string -- File path
-	@param content string -- Content to write
-	@return Promise<ExecutorResult<nil>> -- Success or error
+	@param path string
+	@param content string
+	@return Result<nil>
 ]=]
-local function _writeFile(path: string, content: string)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not writefile then
-			return resolve({ success = false, error = "writefile not found" } :: ExecutorResult<nil>)
-		end
+local function writeFile (path: string, content: string): Result<nil>
+	if not api.writefile then return { success = false, error = "writefile not available" } end
 
-		-- Normalize path
-		local normalizedPath = path:gsub("\\", "/")
+	local normalized = normalizePath (path)
 
-		-- Ensure parent directory exists
-		local dir = normalizedPath:match("^(.+)/")
-		if dir then
-			_createFolder(dir):andThen(function(createResult)
-				if not createResult.success then
-					return resolve({ success = false, error = createResult.error or "Failed to create directory" } :: ExecutorResult<nil>)
-				end
+	-- Ensure parent directory exists
+	local dir = normalized:match ("^(.+)/[^/]+$")
+	if dir then
+		local createResult = createFolder (dir)
+		if not createResult.success then return createResult end
+	end
 
-				-- Write file safely
-				local ok = pcall(writefile, normalizedPath, content)
-				resolve(
-					if ok
-						then { success = true, data = nil }
-						else { success = false, error = "Failed to write file" } :: ExecutorResult<nil>
-				)
-			end):catch(function(err)
-				resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
-			end)
-		else
-			-- Write file safely (no directory needed)
-			local ok = pcall(writefile, normalizedPath, content)
-			resolve(
-				if ok
-					then { success = true, data = nil }
-					else { success = false, error = "Failed to write file" } :: ExecutorResult<nil>
-			)
-		end
-	end)
+	return trySafe (api.writefile, normalized, content)
 end
 
 --[=[
 	Appends content to file
 
-	@param path string -- File path
-	@param content string -- Content to append
-	@return Promise<ExecutorResult<nil>> -- Success or error
+	@param path string
+	@param content string
+	@return Result<nil>
 ]=]
-local function _appendFile(path: string, content: string)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not appendfile then
-			return resolve({ success = false, error = "appendfile not found" } :: ExecutorResult<nil>)
-		end
+local function appendFile (path: string, content: string): Result<nil>
+	if not api.appendfile then return { success = false, error = "appendfile not available" } end
 
-		-- Normalize path
-		local normalizedPath = path:gsub("\\", "/")
+	local normalized = normalizePath (path)
 
-		-- Check if file exists
-		_isFile(normalizedPath):andThen(function(fileCheck)
-			if not fileCheck.success then
-				return resolve({ success = false, error = fileCheck.error or "Failed to check file" } :: ExecutorResult<nil>)
-			end
+	-- Check if file exists
+	local fileCheck = isFile (normalized)
+	if fileCheck.success and not fileCheck.data then
+		return { success = false, error = `File not found: {normalized}` }
+	end
 
-			if not fileCheck.data then
-				return resolve({ success = false, error = `File not found: {normalizedPath}` } :: ExecutorResult<nil>)
-			end
-
-			-- Append to file safely
-			local ok = pcall(appendfile, normalizedPath, content)
-			resolve(
-				if ok
-					then { success = true, data = nil }
-					else { success = false, error = "Failed to append to file" } :: ExecutorResult<nil>
-			)
-		end):catch(function(err)
-			resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
-		end)
-	end)
+	return trySafe (api.appendfile, normalized, content)
 end
 
 --[=[
 	Deletes file
 
-	@param path string -- File path
-	@return Promise<ExecutorResult<nil>> -- Success or error
+	@param path string
+	@return Result<nil>
 ]=]
-local function _deleteFile(path: string)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not delfile then
-			return resolve({ success = false, error = "delfile not found" } :: ExecutorResult<nil>)
-		end
+local function deleteFile (path: string): Result<nil>
+	if not api.delfile then return { success = false, error = "delfile not available" } end
 
-		-- Normalize path
-		local normalizedPath = path:gsub("\\", "/")
+	local normalized = normalizePath (path)
 
-		-- Check if file exists
-		_isFile(normalizedPath):andThen(function(fileCheck)
-			if not fileCheck.success then
-				return resolve({ success = false, error = fileCheck.error or "Failed to check file" } :: ExecutorResult<nil>)
-			end
+	-- Check if file exists
+	local fileCheck = isFile (normalized)
+	if fileCheck.success and not fileCheck.data then
+		return { success = false, error = `File not found: {normalized}` }
+	end
 
-			if not fileCheck.data then
-				return resolve({ success = false, error = `File not found: {normalizedPath}` } :: ExecutorResult<nil>)
-			end
-
-			-- Delete file safely
-			local ok = pcall(delfile, normalizedPath)
-			resolve(
-				if ok
-					then { success = true, data = nil }
-					else { success = false, error = "Failed to delete file" } :: ExecutorResult<nil>
-			)
-		end):catch(function(err)
-			resolve({ success = false, error = tostring(err) } :: ExecutorResult<nil>)
-		end)
-	end)
+	return trySafe (api.delfile, normalized)
 end
 
 --[=[
-	Lists directory contents
+	Lists files in directory
 
-	@param path string -- Directory path
-	@return Promise<ExecutorResult<{string}>> -- File list or error
+	@param path string
+	@return Result<{string}>
 ]=]
-local function _listFiles(path: string)
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not listfiles then
-			return resolve({ success = false, error = "listfiles not found" } :: ExecutorResult<{ string }>)
-		end
+local function listFiles (path: string): Result<{ string }>
+	if not api.listfiles then return { success = false, error = "listfiles not available" } end
 
-		-- Normalize path
-		local normalizedPath = path:gsub("\\", "/")
+	local normalized = normalizePath (path)
 
-		-- Check if directory exists
-		_isFolder(normalizedPath):andThen(function(folderCheck)
-			if not folderCheck.success then
-				return resolve({
-					success = false,
-					error = folderCheck.error or "Failed to check folder",
-				} :: ExecutorResult<{ string }>)
-			end
+	-- Check if folder exists
+	local folderCheck = isFolder (normalized)
+	if folderCheck.success and not folderCheck.data then
+		return { success = false, error = `Folder not found: {normalized}` }
+	end
 
-			if not folderCheck.data then
-				return resolve({
-					success = false,
-					error = `Directory not found: {normalizedPath}`,
-				} :: ExecutorResult<{ string }>)
-			end
-
-			-- List files safely
-			local ok, files = pcall(listfiles, normalizedPath)
-			resolve(
-				if ok
-					then { success = true, data = files }
-					else { success = false, error = tostring(files) } :: ExecutorResult<{ string }>
-			)
-		end):catch(function(err)
-			resolve({ success = false, error = tostring(err) } :: ExecutorResult<{ string }>)
-		end)
-	end)
+	return trySafe (api.listfiles, normalized)
 end
 
---[=[
-	Gets global environment
-
-	@return Promise<ExecutorResult<table>> -- Global environment table
-]=]
-local function _getgenv()
-	return Promise.defer(function(resolve)
-		-- Check if function exists
-		if not getgenv then
-			return resolve({ success = false, error = "getgenv not found" } :: ExecutorResult<{ [any]: any }>)
-		end
-
-		-- Call function safely
-		local ok, result = pcall(getgenv)
-		resolve(
-			if ok
-				then { success = true, data = result }
-				else { success = false, error = tostring(result) } :: ExecutorResult<{ [any]: any }>
-		)
-	end)
-end
-
---[=[
-	Checks if function exists in executor environment
-
-	@param name string -- Function name (supports nested: "crypt.base64encode")
-	@return boolean -- True if function exists
-]=]
-local function hasFunction(name: string): boolean
-	-- Check if getgenv exists
-	if not getgenv then
-		return false
-	end
-
-	-- Get global environment
-	local ok, env = pcall(getgenv)
-	if not ok then
-		return false
-	end
-
-	local parts = string.split(name, ".")
-	local current = env
-
-	-- Traverse nested path
-	for _, part in parts do
-		if type(current) ~= "table" then
-			return false
-		end
-		current = current[part]
-		if not current then
-			return false
-		end
-	end
-
-	return true
-end
-
--- Initialize executor info on module load
-_identifyExecutor():andThen(function(result)
-	if result.success and result.data then
-		info.name = result.data.name
-		info.version = result.data.version
-		info.detected = result.data.detected
-	end
-end)
+-- ============================================================================
+-- EXPORTS
+-- ============================================================================
 
 return {
-	info = info,
-	getgenv = _getgenv,
-	identifyExecutor = _identifyExecutor,
-	getHiddenProperty = _getHiddenProperty,
-	setHiddenProperty = _setHiddenProperty,
-	getScriptBytecode = _getScriptBytecode,
-	getScriptHash = _getScriptHash,
-	cloneRef = _cloneRef,
-	setThreadIdentity = _setThreadIdentity,
-	getThreadIdentity = _getThreadIdentity,
-	base64Encode = _base64Encode,
-	base64Decode = _base64Decode,
-	sha384Hash = _sha384Hash,
-	readFile = _readFile,
-	writeFile = _writeFile,
-	appendFile = _appendFile,
-	deleteFile = _deleteFile,
-	listFiles = _listFiles,
-	createFolder = _createFolder,
-	isFile = _isFile,
-	isFolder = _isFolder,
+	-- Info
+	info = executorInfo,
+
+	-- API access
+	api = api,
 	hasFunction = hasFunction,
+
+	-- Reflection
+	getHiddenProperty = getHiddenProperty,
+	setHiddenProperty = setHiddenProperty,
+	setThreadIdentity = setThreadIdentity,
+	getThreadIdentity = getThreadIdentity,
+
+	-- Scripts
+	getScriptBytecode = getScriptBytecode,
+	getScriptHash = getScriptHash,
+
+	-- Instances
+	cloneRef = cloneRef,
+	getNilInstances = getNilInstances,
+
+	-- Cryptography
+	base64Encode = base64Encode,
+	base64Decode = base64Decode,
+	hash = hash,
+	sha384Hash = sha384Hash,
+
+	-- Environment
+	getgenv = getgenv,
+
+	-- Filesystem
+	isFile = isFile,
+	isFolder = isFolder,
+	createFolder = createFolder,
+	readFile = readFile,
+	writeFile = writeFile,
+	appendFile = appendFile,
+	deleteFile = deleteFile,
+	listFiles = listFiles,
 }

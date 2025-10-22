@@ -19,9 +19,7 @@ export type PadSide = "left" | "right"
 	@param substr string -- Substring to find
 	@return boolean -- True if substring found
 ]=]
-local function contains(str: string, substr: string): boolean
-	return string.find(str, substr, 1, true) ~= nil
-end
+local function contains (str: string, substr: string): boolean return string.find (str, substr, 1, true) ~= nil end
 
 --[=[
 	Checks if string starts with prefix
@@ -30,9 +28,7 @@ end
 	@param prefix string -- Prefix to match
 	@return boolean -- True if string starts with prefix
 ]=]
-local function startsWith(str: string, prefix: string): boolean
-	return string.sub(str, 1, #prefix) == prefix
-end
+local function startsWith (str: string, prefix: string): boolean return string.sub (str, 1, #prefix) == prefix end
 
 --[=[
 	Checks if string ends with suffix
@@ -41,9 +37,7 @@ end
 	@param suffix string -- Suffix to match
 	@return boolean -- True if string ends with suffix
 ]=]
-local function endsWith(str: string, suffix: string): boolean
-	return string.sub(str, -#suffix) == suffix
-end
+local function endsWith (str: string, suffix: string): boolean return string.sub (str, -#suffix) == suffix end
 
 --[=[
 	Trims whitespace from string
@@ -52,18 +46,18 @@ end
 	@param mode TrimMode? -- Which sides to trim (default: "both")
 	@return string -- Trimmed string
 ]=]
-local function trim(str: string, mode: TrimMode?): string
+local function trim (str: string, mode: TrimMode?): string
 	local trimMode = mode or "both"
 
 	if trimMode == "both" then
-		return string.match(str, "^%s*(.-)%s*$") or str
+		return string.match (str, "^%s*(.-)%s*$") or str
 	elseif trimMode == "start" then
-		return string.match(str, "^%s*(.-)$") or str
+		return string.match (str, "^%s*(.-)$") or str
 	elseif trimMode == "end" then
-		return string.match(str, "^(.-)%s*$") or str
+		return string.match (str, "^(.-)%s*$") or str
 	end
 
-	error(`Invalid trim mode: {trimMode}`)
+	error (`Invalid trim mode: {trimMode}`)
 end
 
 --[=[
@@ -75,12 +69,10 @@ end
 	@param side PadSide? -- Side to pad (default: "left")
 	@return string -- Padded string
 ]=]
-local function pad(str: string, length: number, char: string?, side: PadSide?): string
-	if #str >= length then
-		return str
-	end
+local function pad (str: string, length: number, char: string?, side: PadSide?): string
+	if #str >= length then return str end
 
-	local padding = string.rep(char or " ", length - #str)
+	local padding = string.rep (char or " ", length - #str)
 	return if (side or "left") == "left" then padding .. str else str .. padding
 end
 
@@ -91,9 +83,7 @@ end
 	@param separator string? -- Separator pattern (default: ",")
 	@return {string} -- Array of split parts
 ]=]
-local function split(str: string, separator: string?): { string }
-	return string.split(str, separator or ",")
-end
+local function split (str: string, separator: string?): { string } return string.split (str, separator or ",") end
 
 return {
 	contains = contains,
