@@ -23,7 +23,7 @@ end
 
 local function rbx (inst: Instance): string
 	local id = get (inst)
-	local result = Executor.base64Encode (tostring (id))
+	local result = Executor.encodeBase64 (tostring (id))
 
 	if not result.success or not result.data then error (result.error or "Base64 encoding failed") end
 

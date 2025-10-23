@@ -270,6 +270,7 @@ local function generate (opts: Options): Promise.TypedPromise<Types.Result>
 		local ok, memKB = pcall (function () return gcinfo () end)
 		if ok and memKB then stats.memoryUsed = math.floor (memKB * 1024) end
 
+		-- Return standard Result type with stats embedded
 		resolve ({
 			success = true,
 			data = xml,

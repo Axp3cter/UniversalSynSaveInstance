@@ -39,9 +39,9 @@ local function getService (name: string): Service?
 	-- Return cached service
 	if cache[name] then return cache[name] end
 
-	-- Try multiple access methods
-	local service = tryGet (function () return Instance.new (name) :: Service end)
-		or tryGet (function () return game:GetService (name) :: Service end)
+	-- FIXED: Only use proper service access methods (no Instance.new)
+	-- Try in order: game:GetService -> settings:GetService -> UserSettings:GetService
+	local service = tryGet (function () return game:GetService (name) :: Service end)
 		or tryGet (function () return settings ():GetService (name) :: Service end)
 		or tryGet (function () return UserSettings ():GetService (name :: any) :: Service end)
 

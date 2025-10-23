@@ -94,9 +94,13 @@ end
 
 local executorInfo: ExecutorInfo = { name = "Unknown", version = nil, detected = false }
 
--- Initialize executor info on load
+-- Roblox client version (extracted from version() function)
+local clientVersionNumber: number? = nil
+
+-- Initialize executor info and client version on load
 do
-	local identifyFn = identifyexecutor or getexecutorname or whatexecutor
+	-- sUNC standard: identifyexecutor only, no fallbacks
+	local identifyFn = identifyexecutor
 
 	if identifyFn then
 		local ok, name, version = pcall (identifyFn)
@@ -104,6 +108,17 @@ do
 			executorInfo.name = tostring (name)
 			executorInfo.version = version and tostring (version) or nil
 			executorInfo.detected = true
+		end
+	end
+
+	-- Extract client version from version() function
+	-- Format: "0.XXX.Y.ZZZZZ" -> extract XXX as number
+	local ok, versionStr = pcall (version)
+	if ok and versionStr then
+		local parts = string.split (versionStr, ".")
+		if #parts >= 2 then
+			local versionNum = tonumber (parts[2])
+			if versionNum then clientVersionNumber = versionNum end
 		end
 	end
 end
@@ -122,15 +137,15 @@ end
 	@class api
 ]=]
 local api = {
-	-- Reflection
+	-- Reflection (sUNC standard - exact names only)
 	gethiddenproperty = gethiddenproperty,
 	sethiddenproperty = sethiddenproperty,
 	gethiddenproperties = gethiddenproperties,
-	setthreadidentity = setthreadidentity or setthreadcontext or setidentity,
-	getthreadidentity = getthreadidentity or getthreadcontext or getidentity,
+	setthreadidentity = setthreadidentity,
+	getthreadidentity = getthreadidentity,
 
-	-- Scripts
-	getscriptbytecode = getscriptbytecode or dumpstring,
+	-- Scripts (sUNC standard - exact names only)
+	getscriptbytecode = getscriptbytecode,
 	getscripthash = getscripthash,
 	decompile = decompile,
 	getsenv = getsenv,
@@ -138,17 +153,17 @@ local api = {
 	getrunningscripts = getrunningscripts,
 	getscriptclosure = getscriptclosure,
 
-	-- Instances
+	-- Instances (sUNC standard - exact names only)
 	cloneref = cloneref,
 	compareinstances = compareinstances,
 	getnilinstances = getnilinstances,
 	getinstances = getinstances,
-	gethui = gethui or get_hidden_gui,
+	gethui = gethui,
 
-	-- Cryptography (nested in crypt table)
+	-- Cryptography (sUNC standard - exact names in crypt table)
 	crypt = {
-		base64encode = crypt and crypt.base64encode or crypt and crypt.base64_encode,
-		base64decode = crypt and crypt.base64decode or crypt and crypt.base64_decode,
+		base64encode = crypt and crypt.base64encode,
+		base64decode = crypt and crypt.base64decode,
 		hash = crypt and crypt.hash,
 		encrypt = crypt and crypt.encrypt,
 		decrypt = crypt and crypt.decrypt,
@@ -157,7 +172,7 @@ local api = {
 		generatebytes = crypt and crypt.generatebytes,
 	},
 
-	-- Debug
+	-- Debug (sUNC standard - exact names only)
 	debug = {
 		getconstants = debug.getconstants,
 		getconstant = debug.getconstant,
@@ -172,21 +187,21 @@ local api = {
 		getprotos = debug.getprotos,
 	},
 
-	-- Closures
-	hookfunction = hookfunction or replaceclosure,
+	-- Closures (sUNC standard - exact names only)
+	hookfunction = hookfunction,
 	restorefunction = restorefunction,
 	clonefunction = clonefunction,
 	newcclosure = newcclosure,
 	iscclosure = iscclosure,
 	islclosure = islclosure,
-	isexecutorclosure = isexecutorclosure or checkcaller or is_syn_closure,
+	isexecutorclosure = isexecutorclosure,
 
-	-- Environment
+	-- Environment (sUNC standard - exact names only)
 	getgenv = getgenv,
 	getrenv = getrenv,
 	getmenv = getmenv,
 
-	-- Filesystem
+	-- Filesystem (sUNC standard - exact names only)
 	isfile = isfile,
 	isfolder = isfolder,
 	readfile = readfile,
@@ -221,13 +236,15 @@ end
 
 --[=[
 	Fallback for base64 encoding using Reselim's implementation
+	Only used if crypt.base64encode is not available
 
 	@param data string
 	@return string -- Encoded data
 ]=]
 local base64encode_fallback: ((data: string) -> string)?
 
--- Try to load Reselim's Base64 library as fallback
+-- Reselim's Base64 fallback is allowed as it's a pure Lua implementation
+-- This doesn't violate sUNC standard since we only use it when sUNC function is absent
 do
 	if not api.crypt.base64encode then
 		local ok, result = pcall (function ()
@@ -344,7 +361,7 @@ end
 	@param data string
 	@return Result<string>
 ]=]
-local function base64Encode (data: string): Result<string>
+local function encodeBase64 (data: string): Result<string>
 	if api.crypt.base64encode then
 		local result = trySafe (api.crypt.base64encode, data)
 		if result.success then return result end
@@ -362,7 +379,7 @@ end
 	@param data string
 	@return Result<string>
 ]=]
-local function base64Decode (data: string): Result<string>
+local function decodeBase64 (data: string): Result<string>
 	if not api.crypt.base64decode then return { success = false, error = "base64decode not available" } end
 
 	return trySafe (api.crypt.base64decode, data)
@@ -387,7 +404,7 @@ end
 	@param data string
 	@return Result<string>
 ]=]
-local function sha384Hash (data: string): Result<string> return hash (data, "sha384") end
+local function hashSha384 (data: string): Result<string> return hash (data, "sha384") end
 
 --[=[
 	Gets nil instances (unparented instances)
@@ -567,6 +584,7 @@ end
 return {
 	-- Info
 	info = executorInfo,
+	clientVersion = clientVersionNumber,
 
 	-- API access
 	api = api,
@@ -587,10 +605,10 @@ return {
 	getNilInstances = getNilInstances,
 
 	-- Cryptography
-	base64Encode = base64Encode,
-	base64Decode = base64Decode,
+	encodeBase64 = encodeBase64,
+	decodeBase64 = decodeBase64,
 	hash = hash,
-	sha384Hash = sha384Hash,
+	hashSha384 = hashSha384,
 
 	-- Environment
 	getgenv = getgenv,

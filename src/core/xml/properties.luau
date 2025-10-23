@@ -9,6 +9,7 @@
 	@since 2025-01-20
 ]]
 
+local Bit = require ("@utilities/bit")
 local Executor = require ("@utilities/executor")
 local PropertyTypes = require ("@constants/propertyTypes")
 local XMLUtil = require ("@utilities/xml")
@@ -24,17 +25,34 @@ export type SerializerContext = {
 local function serializeString (value: string): string return XMLUtil.cdata (value) end
 
 local function serializeProtectedString (value: string): string
-	-- Protected strings use CDATA with XML escaping
-	return XMLUtil.cdata (XMLUtil.escapeXML (value))
+	-- Protected strings use sophisticated escape detection
+	return XMLUtil.protectedString (value)
 end
 
 local function serializeBool (value: boolean): string return if value then "true" else "false" end
 
 local function serializeInt (value: number): string return tostring (math.floor (value)) end
 
-local function serializeFloat (value: number): string return tostring (value) end
+local function normalizeNumber (value: number): string
+	-- Handle special float values (NaN, Infinity, -Infinity)
+	if value ~= value then
+		return "NAN"
+	elseif value == math.huge then
+		return "INF"
+	elseif value == -math.huge then
+		return "-INF"
+	end
+	return tostring (value)
+end
 
-local function serializeDouble (value: number): string return tostring (value) end
+local function normalizeRange (value: number): string
+	-- For ranges, convert NaN to 0 for compatibility
+	return if value ~= value then "0" else tostring (value)
+end
+
+local function serializeFloat (value: number): string return normalizeNumber (value) end
+
+local function serializeDouble (value: number): string return normalizeNumber (value) end
 
 -- ============================================================================
 -- Vector Types
@@ -55,13 +73,17 @@ end
 -- ============================================================================
 
 local function serializeColor3 (value: Color3): string
+	-- Use element format for better compatibility
+	return `<R>{value.R}</R><G>{value.G}</G><B>{value.B}</B>`
+end
+
+local function serializeColor3uint8 (value: Color3): string
+	-- Color3uint8 uses packed integer format
 	local r = math.floor (value.R * 255)
 	local g = math.floor (value.G * 255)
 	local b = math.floor (value.B * 255)
-	return tostring ((r * 65536) + (g * 256) + b)
+	return tostring (0xFF000000 + (r * 0x10000) + (g * 0x100) + b)
 end
-
-local function serializeColor3uint8 (value: Color3): string return serializeColor3 (value) end
 
 local function serializeBrickColor (value: BrickColor): string return tostring (value.Number) end
 
@@ -129,36 +151,45 @@ end
 -- ============================================================================
 
 local function serializeNumberSequence (value: NumberSequence): string
+	-- Space-separated format: time value envelope time value envelope ...
 	local keypoints = value.Keypoints
 	local parts = {}
 
 	for _, keypoint in keypoints do
-		table.insert (
-			parts,
-			`<Keypoint><Time>{keypoint.Time}</Time><Value>{keypoint.Value}</Value><Envelope>{keypoint.Envelope}</Envelope></Keypoint>`
-		)
+		-- Use normalizeRange for NaN handling
+		table.insert (parts, tostring (keypoint.Time))
+		table.insert (parts, normalizeRange (keypoint.Value))
+		table.insert (parts, normalizeRange (keypoint.Envelope))
 	end
 
-	return table.concat (parts, "")
+	return table.concat (parts, " ")
 end
 
 local function serializeColorSequence (value: ColorSequence): string
+	-- Space-separated format: time r g b 0 time r g b 0 ...
 	local keypoints = value.Keypoints
 	local parts = {}
 
 	for _, keypoint in keypoints do
 		local color = keypoint.Value
-		table.insert (parts, `<Keypoint><Time>{keypoint.Time}</Time><Value>{serializeColor3 (color)}</Value></Keypoint>`)
+		table.insert (parts, tostring (keypoint.Time))
+		table.insert (parts, normalizeRange (color.R))
+		table.insert (parts, normalizeRange (color.G))
+		table.insert (parts, normalizeRange (color.B))
+		table.insert (parts, "0") -- Envelope value always 0 for ColorSequence
 	end
 
-	return table.concat (parts, "")
+	return table.concat (parts, " ")
 end
 
 -- ============================================================================
 -- NumberRange
 -- ============================================================================
 
-local function serializeNumberRange (value: NumberRange): string return `<min>{value.Min}</min><max>{value.Max}</max>` end
+local function serializeNumberRange (value: NumberRange): string
+	-- Space-separated format with NaN handling
+	return normalizeRange (value.Min) .. " " .. normalizeRange (value.Max)
+end
 
 -- ============================================================================
 -- PhysicalProperties
@@ -191,7 +222,7 @@ end
 -- ============================================================================
 
 local function serializeBinaryString (value: string): string
-	local result = Executor.base64Encode (value)
+	local result = Executor.encodeBase64 (value)
 
 	if not result.success or not result.data then return "" end
 
@@ -203,26 +234,15 @@ end
 -- ============================================================================
 
 local function serializeFaces (value: Faces): string
-	local parts = {}
-
-	if value.Top then table.insert (parts, "Top") end
-	if value.Bottom then table.insert (parts, "Bottom") end
-	if value.Left then table.insert (parts, "Left") end
-	if value.Right then table.insert (parts, "Right") end
-	if value.Front then table.insert (parts, "Front") end
-	if value.Back then table.insert (parts, "Back") end
-
-	return table.concat (parts, ",")
+	-- Bitfield encoding: integer 0-63
+	-- Order: Right, Top, Back, Left, Bottom, Front
+	return `<faces>{Bit.combineFlags (value.Right, value.Top, value.Back, value.Left, value.Bottom, value.Front)}</faces>`
 end
 
 local function serializeAxes (value: Axes): string
-	local parts = {}
-
-	if value.X then table.insert (parts, "X") end
-	if value.Y then table.insert (parts, "Y") end
-	if value.Z then table.insert (parts, "Z") end
-
-	return table.concat (parts, ",")
+	-- Bitfield encoding: integer 0-7
+	-- Order: X, Y, Z
+	return `<axes>{Bit.combineFlags (value.X, value.Y, value.Z)}</axes>`
 end
 
 -- ============================================================================
@@ -274,7 +294,7 @@ local function serializeSharedString (value: string, context: SerializerContext?
 	end
 
 	-- Fallback to base64
-	local result = Executor.base64Encode (value)
+	local result = Executor.encodeBase64 (value)
 	return if result.success and result.data then result.data else ""
 end
 
@@ -300,6 +320,33 @@ end
 local function serializeOptionalCoordinateFrame (value: CFrame?): string
 	if not value then return "" end
 	return serializeCFrame (value)
+end
+
+-- ============================================================================
+-- Content and ContentId
+-- ============================================================================
+
+local function serializeContent (value: Content, referentMap: { [Instance]: string }): string
+	-- Content type with multiple source types
+	local sourceType = (value :: any).SourceType
+	if not sourceType then return "<null></null>" end
+
+	if sourceType == Enum.ContentSourceType.None then
+		return "<null></null>"
+	elseif sourceType == Enum.ContentSourceType.Uri then
+		return "<uri>" .. XMLUtil.cdata ((value :: any).Uri) .. "</uri>"
+	elseif sourceType == Enum.ContentSourceType.Object then
+		local ref = serializeRef ((value :: any).Object, referentMap)
+		return "<Ref>" .. ref .. "</Ref>"
+	end
+
+	return "<null></null>"
+end
+
+local function serializeContentId (value: string): string
+	-- ContentId is a URL string (can be empty for null)
+	if value == "" then return "<null></null>" end
+	return "<url>" .. XMLUtil.cdata (value) .. "</url>"
 end
 
 -- ============================================================================
@@ -377,6 +424,10 @@ local serializers: { [string]: PropertySerializer } = {
 
 	-- Optional types
 	OptionalCoordinateFrame = serializeOptionalCoordinateFrame,
+
+	-- Content types
+	Content = serializeContent,
+	ContentId = serializeContentId,
 }
 
 --[=[

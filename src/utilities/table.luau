@@ -143,42 +143,34 @@ end
 local function isEmpty (tbl: { any }): boolean return TableUtil.IsEmpty (tbl) end
 
 --[=[
-	Merges tables (shallow merge)
+	Converts array to dictionary with optional modes
 
-	@param target {[K]: V} -- Target table
-	@param ... {[K]: V} -- Source tables to merge
-	@return {[K]: V} -- Merged table
+	@param arr {any} -- Array to convert
+	@param hybridMode boolean? -- Enable hybrid mode for nested tables
+	@param valueOverride any? -- Override value (default: true)
+	@return {[any]: any} -- Dictionary
 ]=]
-local function assign <K, V>(target: { [K]: V }, ...: { [K]: V }): { [K]: V }
-	local result = table.clone (target)
-	for _, source in { ... } do
-		if type (source) == "table" then
-			for k, v in source do
-				result[k] = v
+local function arrayToDict <K, V>(arr: { K }, hybridMode: boolean?, valueOverride: V?): { [K]: V }
+	local dict = {}
+	local override = if valueOverride ~= nil then valueOverride else true
+
+	if hybridMode then
+		for key, value in arr do
+			if type (key) == "number" then
+				dict[value] = override
+			elseif type (value) == "table" then
+				dict[key] = arrayToDict (value, hybridMode, override)
+			else
+				dict[key] = value
 			end
 		end
-	end
-	return result
-end
-
---[=[
-	Removes duplicate values from array
-
-	@param tbl {T} -- Array to process
-	@return {T} -- Array with duplicates removed
-]=]
-local function unique <T>(tbl: { T }): { T }
-	local seen = {}
-	local result = {}
-
-	for _, v in tbl do
-		if not seen[v] then
-			seen[v] = true
-			table.insert (result, v)
+	else
+		for _, value in arr do
+			dict[value] = override
 		end
 	end
 
-	return result
+	return dict :: any
 end
 
 --[=[
@@ -213,8 +205,7 @@ return {
 	every = every,
 	some = some,
 	isEmpty = isEmpty,
-	assign = assign,
-	unique = unique,
+	arrayToDict = arrayToDict, -- Added from old saveinstance
 	flatten = flatten,
 	shuffle = shuffle,
 }

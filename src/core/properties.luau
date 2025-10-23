@@ -1,6 +1,14 @@
 --[[
 	Properties - Read instance properties
-	@author Aspecter | @version 2.0.0
+
+	Provides property reading with:
+	- Hidden property access via gethiddenproperty
+	- Script Source decompilation integration
+	- Property filtering (IgnoreProperties, scripts mode)
+	- Default property detection
+
+	@author Aspecter
+	@version 2.0.0
 ]]
 
 local Executor = require ("@utilities/executor")
@@ -69,6 +77,18 @@ local function get (inst: Instance, propName: string, useHidden: boolean): (bool
 	return success, value
 end
 
+--[=[
+	Reads all properties from an instance with filtering and special handling
+
+	Handles:
+	- Property filtering (IgnoreProperties, scripts mode)
+	- Hidden property reading
+	- Script Source decompilation integration
+
+	@param inst Instance -- Instance to read properties from
+	@param opts Options -- Property reading options
+	@return {PropertyValue} -- Array of property values
+]=]
 local function read (inst: Instance, opts: Options): { PropertyValue }
 	local properties: { PropertyValue } = {}
 	local useHidden = not opts.ignoreSpecialProperties
@@ -82,9 +102,25 @@ local function read (inst: Instance, opts: Options): { PropertyValue }
 
 	if not success then return properties end
 
+	-- Check if instance is a script and needs decompilation
+	local isScript = inst:IsA ("LuaSourceContainer")
+	local shouldDecompile = isScript and opts.scriptOptions and not opts.scriptOptions.noScripts
+
 	for _, propName in propNames do
 		if not skip (propName, opts, inst) then
 			local ok, value = get (inst, propName, useHidden)
+
+			-- Special handling for Source property on scripts
+			if ok and propName == "Source" and shouldDecompile then
+				-- Try to get decompiled source if available
+				local Scripts = require ("@core/scripts")
+				local scriptData = Scripts.process (inst, opts.scriptOptions :: any)
+
+				if scriptData.source then
+					value = scriptData.source
+					ok = true
+				end
+			end
 
 			if ok and value ~= nil then
 				local prop: PropertyValue = {

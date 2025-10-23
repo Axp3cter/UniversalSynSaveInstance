@@ -15,7 +15,7 @@ local function get (str: string): string
 	local existing = strs[str]
 	if existing ~= nil then return existing end
 
-	local result = Executor.base64Encode (tostring (nextId))
+	local result = Executor.encodeBase64 (tostring (nextId))
 
 	if not result.success or not result.data then error (result.error or "Base64 encoding failed") end
 

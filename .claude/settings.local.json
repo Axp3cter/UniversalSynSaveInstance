@@ -12,7 +12,9 @@
       "Bash(cp:*)",
       "Bash(stylua:*)",
       "Bash(luau-lsp analyze:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(if exist \"src\\utilities\\executor.luau.backup\" del \"src\\utilities\\executor.luau.backup\")",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []

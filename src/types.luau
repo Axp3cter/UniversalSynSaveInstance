@@ -84,6 +84,7 @@ export type PropertyOptions = {
 	ignoreSpecialProperties: boolean,
 	ignoreNonScriptProperties: boolean?,
 	mode: SaveMode,
+	scriptOptions: ScriptOptions?,
 }
 
 -- ============================================================================
@@ -146,6 +147,8 @@ export type TraversalOptions = {
 	isolateLocalPlayer: boolean?,
 	isolateStarterPlayer: boolean?,
 	isolateLocalPlayerCharacter: boolean?,
+	ignoreList: { [any]: boolean | { [string]: boolean } }?,
+	decompileIgnore: { [any]: boolean }?,
 }
 
 -- ============================================================================
