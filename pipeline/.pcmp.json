@@ -29,7 +29,7 @@
 
       "template": {
         "enabled": true,
-        "source": "pipeline/templates/frame.luau"
+        "source": "pipeline/frame.luau"
       },
 
       "stylua": {
@@ -77,7 +77,7 @@
 
       "template": {
         "enabled": true,
-        "source": "pipeline/templates/frame.luau"
+        "source": "pipeline/frame.luau"
       },
 
       "stylua": {

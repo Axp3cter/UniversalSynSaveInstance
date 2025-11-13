@@ -18,10 +18,11 @@
 local stdio = require("@lune/stdio")
 local Process = require("@lune/process")
 local DateTime = require("@lune/datetime")
-local Logger = require("../lib/logger")
-local Git = require("../lib/git")
-local Fs = require("../lib/fs")
-local Config = require("../lib/config")
+local Lib = require("../lib")
+local Logger = Lib.Logger
+local Git = Lib.Git
+local Fs = Lib.Fs
+local Config = Lib.Config
 
 -- Temporary file path for interactive release note editing
 local RELEASE_BODY_FILE: string = (Process.env.TEMP or Process.env.TMP or "/tmp") .. "/RELEASE_BODY.md"
