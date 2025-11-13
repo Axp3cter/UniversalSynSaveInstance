@@ -286,7 +286,7 @@ function Lib.write(name: string, content: string)
 	local writeOk: boolean
 	local writeErr: any
 
-	dir = "scripts/dumps"
+	dir = "lune/dump/gen"
 
 	ok, err = pcall(function()
 		if not fs.isDir(dir) then

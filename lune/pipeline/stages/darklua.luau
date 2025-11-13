@@ -24,7 +24,7 @@ local Fs = Lib.Fs
 local Config = Lib.Config
 
 -- Default configuration path used when no stages are explicitly defined
-local DEFAULT_CONFIG = "pipeline/.darklua.json"
+local DEFAULT_CONFIG = "lune/pipeline/.darklua.json"
 
 -- Types
 export type ProcessResult = {
