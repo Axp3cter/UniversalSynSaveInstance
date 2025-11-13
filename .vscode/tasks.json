@@ -7,7 +7,7 @@
         "command": "lune",
         "args": [
           "run",
-          "lune/pipeline/init",
+          "lune/pipeline/main",
           "lune/pipeline/.pcmp.json"
         ],
         "group": {

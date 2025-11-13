@@ -11,10 +11,10 @@ UniversalSynSaveInstance is a Roblox serialization library written in Luau. The 
 ### Building
 The project uses a custom build pipeline with darklua for bundling and minification:
 ```bash
-lune run lune/pipeline/init.luau <config.json>
+lune run lune/pipeline/main.luau <config.json>
 ```
 
-The build system (`lune/pipeline/init.luau`) handles:
+The build system (`lune/pipeline/main.luau`) handles:
 - Interactive build configuration selection
 - Version prompting
 - Source processing with darklua (bundling, minification, variable renaming)
@@ -30,7 +30,7 @@ Composer markers in `lune/pipeline/frame.luau`:
 ### Running API Dumpers
 The `lune/dump/scripts/` directory contains analysis scripts that fetch and process Roblox API dumps:
 ```bash
-lune run lune/dump/init.luau [version-hash]
+lune run lune/dump/main.luau [version-hash]
 ```
 
 This executes all dumper scripts sequentially and generates JSON output in `lune/dump/gen/`. Each dumper analyzes specific aspects:
@@ -54,7 +54,7 @@ stylua src/ lune/
 ## Architecture
 
 ### Core Structure
-- `src/` - Main library source (entry point: `src/init.luau`)
+- `src/` - Main library source (entry point: `src/main.luau`)
 - `src/types.luau` - Type definitions for the library
 - `packages/` - Third-party dependencies (fusion.luau, promise.luau, rbxmSuite.luau)
 - `lune/` - Lune scripts directory (build and analysis tooling)

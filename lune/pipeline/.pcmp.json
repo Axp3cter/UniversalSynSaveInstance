@@ -49,7 +49,7 @@
       "description": "Debug build with full source",
       "extends": "Test",
 
-      "input": "src/init.luau",
+      "input": "src/main.luau",
       "output": "generated/debug.luau"
     },
 
@@ -57,7 +57,7 @@
       "description": "Beta release build with minification",
       "type": "standard",
 
-      "input": "src/init.luau",
+      "input": "src/main.luau",
       "output": "generated/dist.luau",
 
       "darklua": {

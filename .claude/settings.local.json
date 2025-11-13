@@ -5,7 +5,19 @@
       "Bash(dumps/.gitkeep)",
       "Bash(lune run:*)",
       "Bash(find:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(dir \"C:\\Users\\Aspecter\\Documents\\GitHub\\UniversalSynSaveInstance\\lune\\dump\" /b)",
+      "Bash(lune:*)",
+      "Bash(dir:*)",
+      "Bash(powershell -Command \"Get-Content ''lune\\dump\\lib.luau'' -Raw | Measure-Object -Character\")",
+      "Bash(powershell -Command \"Test-Path ''.\\lib.luau''\")",
+      "Bash(powershell -Command \"(Get-Content ''lune\\dump\\init.luau'' -Encoding UTF8)[22]\")",
+      "Bash(powershell -Command \"(Get-Content ''lune\\dump\\test.luau'' -Encoding UTF8)[2]\")",
+      "Bash(copy \"lune\\dump\\init.luau\" \"lune\\dump\\init-backup.luau\")",
+      "Bash(powershell -Command:*)",
+      "Bash(git mv:*)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)"
     ],
     "deny": [],
     "ask": []
