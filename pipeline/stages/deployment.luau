@@ -9,22 +9,21 @@
 
 	@usage
 	```lua
-	local DeploymentStage = require("./stages/deployment-stage")
-	local result = DeploymentStage.deploy(deployConfig, version, outputPath)
+	local Deployment = require("./stages/deployment")
+	local result = Deployment.deploy(deployConfig, version, outputPath)
 	```
 ]=]
 
 -- Imports
-local fs = require("@lune/fs")
 local stdio = require("@lune/stdio")
 local Process = require("@lune/process")
 local DateTime = require("@lune/datetime")
 local Logger = require("../lib/logger")
-local GitUtils = require("../lib/git-utils")
-local FsUtils = require("../lib/fs-utils")
+local Git = require("../lib/git")
+local Fs = require("../lib/fs")
 local Config = require("../lib/config")
 
--- Constants
+-- Temporary file path for interactive release note editing
 local RELEASE_BODY_FILE: string = (Process.env.TEMP or Process.env.TMP or "/tmp") .. "/RELEASE_BODY.md"
 
 -- Types
@@ -38,8 +37,13 @@ export type DeployResult = {
 -- Module
 local Deployment = {}
 
+-- Helper functions
+
 --[=[
 	Opens a file in the user's editor and waits for confirmation.
+
+	On Windows, launches editor via PowerShell. On other platforms, displays
+	file path for manual editing.
 
 	@param filePath Path to file to edit
 	@param editor Editor command (default: "code")
@@ -48,7 +52,6 @@ local Deployment = {}
 local function editFileInteractive(filePath: string, editor: string?): boolean
 	local editorCmd: string = editor or "code"
 
-	-- Only attempt to open editor on Windows (as per original implementation)
 	if Process.os == "windows" then
 		local result = Process.exec("powershell", {
 			"-ExecutionPolicy",
@@ -59,10 +62,10 @@ local function editFileInteractive(filePath: string, editor: string?): boolean
 		})
 
 		if not result.ok then
-			Logger.warn(`Failed to open editor: {result.stderr}`)
+			Logger.warn(`Failed to open {editorCmd}: {result.stderr}`)
 		end
 	else
-		Logger.info(`Please edit the release notes at: {filePath}`)
+		Logger.info(`Edit release notes at: {filePath}`)
 	end
 
 	return stdio.prompt("confirm", "Confirm when release notes are ready")
@@ -71,15 +74,15 @@ end
 --[=[
 	Deploys a build to GitHub releases.
 
-	Creates a release, uploads the build artifact, and returns the release URL.
-	Supports interactive release note editing in non-CI mode.
+	Creates release, uploads artifact, and returns URL. In interactive mode,
+	allows editing release notes before publishing.
 
-	@param deployConfig Deployment configuration
-	@param version Build version (tag name)
+	@param deployConfig Deployment configuration with GitHub settings
+	@param version Build version tag (e.g., "v1.0.0")
 	@param configName Build configuration name
 	@param outputPath Path to build artifact to upload
-	@param ciMode Whether in CI mode (skips prompts)
-	@return DeployResult with success status and release URL
+	@param ciMode Skip prompts if true (default: false)
+	@return DeployResult with success, release URL, duration
 ]=]
 function Deployment.deploy(
 	deployConfig: Config.DeploymentConfig,
@@ -91,35 +94,32 @@ function Deployment.deploy(
 	local startTime: number = DateTime.now().unixTimestampMillis
 	local isCiMode: boolean = ciMode or false
 
-	-- Validate GitHub config
 	if not deployConfig.github then
 		return {
 			success = false,
 			releaseUrl = nil,
-			error = "GitHub deployment configuration missing",
+			error = "GitHub config missing",
 			duration = 0,
 		}
 	end
 
 	local githubConfig: Config.GitHubConfig = deployConfig.github
 
-	-- Get API key
-	local apiKey: string? = GitUtils.getApiKey(githubConfig.apiKeyEnv)
+	local apiKey: string? = Git.getApiKey(githubConfig.apiKeyEnv)
 	if not apiKey then
 		return {
 			success = false,
 			releaseUrl = nil,
-			error = `GitHub API key not found (env: {githubConfig.apiKeyEnv or "GITHUB_API_KEY"})`,
+			error = `API key not found (env: {githubConfig.apiKeyEnv or "GITHUB_API_KEY"})`,
 			duration = 0,
 		}
 	end
 
-	-- Validate output file exists
-	if not FsUtils.isReadableFile(outputPath) then
+	if not Fs.exists(outputPath) then
 		return {
 			success = false,
 			releaseUrl = nil,
-			error = `Build output not found: {outputPath}`,
+			error = `Output not found: {outputPath}`,
 			duration = 0,
 		}
 	end
@@ -142,13 +142,13 @@ function Deployment.deploy(
 
 	if not isCiMode then
 		-- Write initial release notes and allow editing
-		fs.writeFile(RELEASE_BODY_FILE, releaseBody)
+		Fs.write(RELEASE_BODY_FILE, releaseBody)
 
 		local editConfirmed: boolean = editFileInteractive(RELEASE_BODY_FILE, nil)
 		if not editConfirmed then
 			-- Clean up and cancel
-			if fs.isFile(RELEASE_BODY_FILE) then
-				fs.removeFile(RELEASE_BODY_FILE)
+			if Fs.exists(RELEASE_BODY_FILE) then
+				Fs.remove(RELEASE_BODY_FILE)
 			end
 			return {
 				success = false,
@@ -159,14 +159,17 @@ function Deployment.deploy(
 		end
 
 		-- Read edited release notes
-		if fs.isFile(RELEASE_BODY_FILE) then
-			releaseBody = fs.readFile(RELEASE_BODY_FILE)
+		if Fs.exists(RELEASE_BODY_FILE) then
+			local notes: string? = Fs.read(RELEASE_BODY_FILE)
+			if notes then
+				releaseBody = notes
+			end
 		end
 	end
 
 	-- Check if release already exists
 	Logger.verbose(`Checking if release {version} already exists...`)
-	local exists: boolean?, existsErr: string? = GitUtils.releaseExists(
+	local exists: boolean?, existsErr: string? = Git.releaseExists(
 		githubConfig.owner,
 		githubConfig.repo,
 		apiKey,
@@ -193,7 +196,7 @@ function Deployment.deploy(
 
 	-- Create release
 	Logger.detail(`Creating release: {version}`)
-	local release: GitUtils.GitHubRelease?, releaseErr: string? = GitUtils.createRelease(
+	local release: Git.GitHubRelease?, releaseErr: string? = Git.createRelease(
 		githubConfig.owner,
 		githubConfig.repo,
 		apiKey,
@@ -206,8 +209,8 @@ function Deployment.deploy(
 
 	if not release then
 		-- Clean up temp file
-		if fs.isFile(RELEASE_BODY_FILE) then
-			fs.removeFile(RELEASE_BODY_FILE)
+		if Fs.exists(RELEASE_BODY_FILE) then
+			Fs.remove(RELEASE_BODY_FILE)
 		end
 
 		return {
@@ -219,10 +222,10 @@ function Deployment.deploy(
 	end
 
 	-- Upload asset
-	local assetName: string = FsUtils.getBaseName(outputPath)
+	local assetName: string = Fs.basename(outputPath)
 	Logger.detail(`Uploading asset: {assetName}`)
 
-	local uploadSuccess: boolean, uploadErr: string? = GitUtils.uploadAsset(
+	local uploadSuccess: boolean, uploadErr: string? = Git.uploadAsset(
 		githubConfig.owner,
 		githubConfig.repo,
 		apiKey,
@@ -232,8 +235,8 @@ function Deployment.deploy(
 	)
 
 	-- Clean up temp file
-	if fs.isFile(RELEASE_BODY_FILE) then
-		fs.removeFile(RELEASE_BODY_FILE)
+	if Fs.exists(RELEASE_BODY_FILE) then
+		Fs.remove(RELEASE_BODY_FILE)
 	end
 
 	if not uploadSuccess then
@@ -241,36 +244,35 @@ function Deployment.deploy(
 		Logger.warn(`You may need to manually upload the asset to: {release.html_url}`)
 	end
 
-	local duration: number = DateTime.now().unixTimestampMillis - startTime
-
 	return {
 		success = true,
 		releaseUrl = release.html_url,
 		error = nil,
-		duration = duration,
+		duration = DateTime.now().unixTimestampMillis - startTime,
 	}
 end
 
 --[=[
 	Validates deployment configuration and API key availability.
 
+	Checks GitHub config presence and validates API key by testing authentication.
+
 	@param deployConfig Deployment configuration to validate
-	@return True if valid and ready, or false and error message
+	@return True if ready, false and error message otherwise
 ]=]
 function Deployment.validate(deployConfig: Config.DeploymentConfig): (boolean, string?)
 	if not deployConfig.github then
-		return false, "GitHub deployment configuration missing"
+		return false, "GitHub config missing"
 	end
 
-	local apiKey: string? = GitUtils.getApiKey(deployConfig.github.apiKeyEnv)
+	local apiKey: string? = Git.getApiKey(deployConfig.github.apiKeyEnv)
 	if not apiKey then
-		return false, "GitHub API key not found"
+		return false, "API key not found"
 	end
 
-	-- Validate API key
-	local valid: boolean, err: string? = GitUtils.validateApiKey(apiKey)
+	local valid: boolean, err: string? = Git.validateApiKey(apiKey)
 	if not valid then
-		return false, `GitHub API key validation failed: {err}`
+		return false, `API key validation failed: {err}`
 	end
 
 	return true, nil

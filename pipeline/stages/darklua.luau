@@ -19,8 +19,11 @@
 local Process = require("@lune/process")
 local DateTime = require("@lune/datetime")
 local Logger = require("../lib/logger")
-local FsUtils = require("../lib/fs-utils")
+local Fs = require("../lib/fs")
 local Config = require("../lib/config")
+
+-- Default configuration path used when no stages are explicitly defined
+local DEFAULT_CONFIG = "pipeline/.darklua.json"
 
 -- Types
 export type ProcessResult = {
@@ -34,14 +37,18 @@ export type ProcessResult = {
 -- Module
 local Darklua = {}
 
+-- Helper functions
+
 --[=[
 	Executes darklua process command with given parameters.
 
+	Runs darklua with custom environment variables merged into process env.
+
 	@param input Input file path
 	@param output Output file path
-	@param configPath Path to darklua configuration file
+	@param configPath Path to darklua config JSON file
 	@param env Optional environment variables to inject
-	@return Success boolean and stderr string
+	@return True if succeeded, stderr string
 ]=]
 local function executeDarklua(
 	input: string,
@@ -49,7 +56,6 @@ local function executeDarklua(
 	configPath: string,
 	env: { [string]: string }?
 ): (boolean, string)
-	-- Merge environment variables
 	local processEnv: { [string]: string } = table.clone(Process.env)
 	if env then
 		for key: string, value: string in env do
@@ -57,15 +63,13 @@ local function executeDarklua(
 		end
 	end
 
-	local args: { string } = {
+	local result = Process.exec("darklua", {
 		"process",
 		input,
 		output,
 		"-c",
 		configPath,
-	}
-
-	local result = Process.exec("darklua", args, {
+	}, {
 		env = processEnv,
 	})
 
@@ -75,13 +79,13 @@ end
 --[=[
 	Processes a file through multiple darklua stages.
 
-	Each stage runs darklua with a different configuration, enabling
-	multi-pass optimization pipelines (e.g., bundle → optimize → minify).
+	Runs sequential transformation passes with different configs. Intermediate
+	results are stored in temporary files and cleaned up automatically.
 
 	@param input Initial input file path
 	@param finalOutput Final output file path
-	@param darkluaConfig Darklua configuration from build config
-	@return ProcessResult with success status, output path, and timing
+	@param darkluaConfig Darklua configuration with stages array
+	@return ProcessResult with success, output, duration, and stage count
 ]=]
 function Darklua.process(
 	input: string,
@@ -90,43 +94,39 @@ function Darklua.process(
 ): ProcessResult
 	local startTime: number = DateTime.now().unixTimestampMillis
 
-	-- Validate input file exists
-	if not FsUtils.isReadableFile(input) then
+	if not Fs.exists(input) then
 		return {
 			success = false,
 			output = nil,
-			error = `Input file not found or unreadable: {input}`,
+			error = `Input not found: {input}`,
 			duration = 0,
 			stagesCompleted = 0,
 		}
 	end
 
-	-- Get stages
 	local stages: { Config.DarkluaStage } = darkluaConfig.stages or {}
 
 	if #stages == 0 then
-		-- No stages defined, run a single default stage
-		Logger.verbose("No darklua stages defined, running default configuration")
+		Logger.verbose("No stages defined, using default config")
 
-		local configPath: string = "pipeline/.darklua.json"
-		if not FsUtils.isReadableFile(configPath) then
+		if not Fs.exists(DEFAULT_CONFIG) then
 			return {
 				success = false,
 				output = nil,
-				error = `Darklua config not found: {configPath}`,
+				error = `Config not found: {DEFAULT_CONFIG}`,
 				duration = 0,
 				stagesCompleted = 0,
 			}
 		end
 
-		FsUtils.ensureParentDir(finalOutput)
-		local success: boolean, stderr: string = executeDarklua(input, finalOutput, configPath, nil)
+		Fs.ensureParent(finalOutput)
+		local success: boolean, stderr: string = executeDarklua(input, finalOutput, DEFAULT_CONFIG, nil)
 
 		if not success then
 			return {
 				success = false,
 				output = nil,
-				error = `Darklua processing failed: {stderr}`,
+				error = `Processing failed: {stderr}`,
 				duration = DateTime.now().unixTimestampMillis - startTime,
 				stagesCompleted = 0,
 			}
@@ -149,10 +149,10 @@ function Darklua.process(
 		local isLastStage: boolean = index == #stages
 		local stageOutput: string = if isLastStage then finalOutput else `{finalOutput}.stage{index}.tmp`
 
-		Logger.detail(`Stage {index}/{#stages}: {stage.name} ({FsUtils.getBaseName(stage.config)})`)
+		Logger.detail(`Stage {index}/{#stages}: {stage.name} ({Fs.basename(stage.config)})`)
 
 		-- Validate stage config exists
-		if not FsUtils.isReadableFile(stage.config) then
+		if not Fs.exists(stage.config) then
 			if stage.optional then
 				Logger.warn(`Skipping optional stage '{stage.name}': config not found`)
 				continue
@@ -168,7 +168,7 @@ function Darklua.process(
 		end
 
 		-- Ensure output directory exists
-		FsUtils.ensureParentDir(stageOutput)
+		Fs.ensureParent(stageOutput)
 
 		-- Execute darklua for this stage
 		local success: boolean, stderr: string = executeDarklua(currentInput, stageOutput, stage.config, stage.env)
@@ -191,46 +191,43 @@ function Darklua.process(
 		stagesCompleted += 1
 
 		-- Clean up previous temporary file
-		if currentInput ~= input and FsUtils.isReadableFile(currentInput) then
-			FsUtils.safeRemoveFile(currentInput)
+		if currentInput ~= input and Fs.exists(currentInput) then
+			Fs.remove(currentInput)
 		end
 
 		currentInput = stageOutput
 	end
 
 	-- Clean up any remaining temporary files
-	for i = 1, #stages - 1 do
-		local tmpFile: string = `{finalOutput}.stage{i}.tmp`
-		if FsUtils.isReadableFile(tmpFile) then
-			FsUtils.safeRemoveFile(tmpFile)
+	for stageIndex = 1, #stages - 1 do
+		local tmpFile: string = `{finalOutput}.stage{stageIndex}.tmp`
+		if Fs.exists(tmpFile) then
+			Fs.remove(tmpFile)
 		end
 	end
-
-	local duration: number = DateTime.now().unixTimestampMillis - startTime
 
 	return {
 		success = true,
 		output = finalOutput,
 		error = nil,
-		duration = duration,
+		duration = DateTime.now().unixTimestampMillis - startTime,
 		stagesCompleted = stagesCompleted,
 	}
 end
 
 --[=[
-	Checks if darklua is available in the system PATH.
+	Checks if darklua is available in system PATH.
 
-	@return True if darklua command is available
+	@return True if darklua command exists
 ]=]
 function Darklua.isAvailable(): boolean
-	local result = Process.exec("darklua", { "--version" })
-	return result.ok
+	return Process.exec("darklua", { "--version" }).ok
 end
 
 --[=[
 	Gets the installed darklua version.
 
-	@return Version string, or nil if darklua is not available
+	@return Version string like "0.17.2", or nil if unavailable
 ]=]
 function Darklua.getVersion(): string?
 	local result = Process.exec("darklua", { "--version" })
@@ -238,8 +235,7 @@ function Darklua.getVersion(): string?
 		return nil
 	end
 
-	local version: string? = result.stdout:match("darklua ([%d%.]+)")
-	return version
+	return result.stdout:match("darklua ([%d%.]+)")
 end
 
 return Darklua
