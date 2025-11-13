@@ -3,78 +3,125 @@
 	@class Cli
 	Shared CLI utilities for lune scripts.
 
-	Provides command-line interface helpers and error handling.
+	Provides command-line interface helpers including argument parsing and
+	standardized error handling for script entry points.
+
+	@dep @lune/process -- Process control and argument access
 ]=]
 
--- Imports
+-- ===== Imports =====
+
 local Process = require("@lune/process")
 local Logging = require("./logging")
 
--- Module
+-- ===== Module =====
+
 local Cli = {}
 
---[=[
-	Runs a script function with standardized error handling.
-
-	Provides consistent CLI entrypoint behavior:
-	- Parses Process.args for optional hash parameter
-	- Catches errors and formats as fatal error messages
-	- Exits with code 1 on failure
-
-	@param fn -- Function to run (receives hash parameter)
-	@param args -- Process arguments array
-	@error Exits with code 1 on failure
-]=]
-function Cli.run(fn: (string?) -> (), args: { string })
-	local hash: string? = args[1]
-	local ok: boolean, err: any = pcall(fn, hash)
-
-	if not ok then
-		Logging.error(`Fatal: {err}`)
-		Process.exit(1)
-	end
-end
+-- ===== Type Definitions =====
 
 --[=[
-	Parses command-line arguments.
+	@class ParsedArguments
+	Structure containing parsed command-line arguments.
 
-	Recognizes flags like --ci, --verbose/-v, --config=path, and positional arguments.
+	Arguments are categorized into positional arguments, boolean flags, and
+	key-value options for easy consumption.
 
-	@param args -- Command-line arguments array
-	@return Parsed arguments table
+	@field positional {string} -- Ordered non-flag arguments
+	@field flags {[string]: boolean} -- Boolean flags (--flag or -f)
+	@field options {[string]: string} -- Key-value pairs (--key=value)
 ]=]
-function Cli.parseArgs(args: { string }): {
+export type ParsedArguments = {
 	positional: { string },
 	flags: { [string]: boolean },
 	options: { [string]: string },
 }
+
+-- ===== CLI Error Handling =====
+
+--[=[
+	Runs a script function with standardized error handling.
+
+	Provides consistent CLI entry point behavior:
+	- Extracts optional hash parameter from arguments
+	- Wraps execution in pcall for safe error capture
+	- Logs fatal errors with consistent formatting
+	- Exits with code 1 on any failure
+
+	This pattern ensures all CLI tools have uniform error reporting.
+
+	@param scriptFunction (string?) -> () -- Function to execute (receives hash parameter)
+	@param arguments {string} -- Command-line arguments array
+
+	@error Exits process with code 1 on any error (never throws)
+]=]
+function Cli.run(scriptFunction: (string?) -> (), arguments: { string })
+	local hashParameter: string? = arguments[1]
+
+	local executeSuccess: boolean
+	local executeError: any
+
+	executeSuccess, executeError = pcall(scriptFunction, hashParameter)
+
+	if not executeSuccess then
+		Logging.error(`Fatal: {executeError}`)
+		Process.exit(1)
+	end
+end
+
+-- ===== Argument Parsing =====
+
+--[=[
+	Parses command-line arguments into structured format.
+
+	Recognizes three argument types:
+	- Flags: --verbose, --ci, -v, -f (boolean)
+	- Options: --config=path, --name=value (key-value)
+	- Positional: Any arguments without -- prefix
+
+	@param arguments {string} -- Raw command-line arguments array
+	@return ParsedArguments -- Structured arguments with positional, flags, and options
+
+	@example
+	```lua
+	local args = Cli.parseArgs({"input.txt", "--verbose", "--output=result.json"})
+	-- args.positional = {"input.txt"}
+	-- args.flags = {verbose = true}
+	-- args.options = {output = "result.json"}
+	```
+]=]
+function Cli.parseArgs(arguments: { string }): ParsedArguments
 	local positional: { string } = {}
 	local flags: { [string]: boolean } = {}
 	local options: { [string]: string } = {}
 
-	for _, arg: string in args do
-		if arg:match("^%-%-(.+)=(.+)$") then
-			-- Option with value: --key=value
-			local key, value = arg:match("^%-%-(.+)=(.+)$")
-			if key and value then
-				options[key] = value
-			end
-		elseif arg:match("^%-%-(.+)$") then
-			-- Flag: --flag
-			local key = arg:match("^%-%-(.+)$")
-			if key then
-				flags[key] = true
-			end
-		elseif arg:match("^%-(.+)$") then
-			-- Short flag: -f
-			local key = arg:match("^%-(.+)$")
-			if key then
-				flags[key] = true
-			end
-		else
-			-- Positional argument
-			table.insert(positional, arg)
+	for _, argument in arguments do
+		-- Check for option with value (--key=value)
+		local optionKey: string?
+		local optionValue: string?
+		optionKey, optionValue = argument:match("^%-%-(.+)=(.+)$")
+
+		if optionKey and optionValue then
+			options[optionKey] = optionValue
+			continue
 		end
+
+		-- Check for long flag (--flag)
+		local longFlag: string? = argument:match("^%-%-(.+)$")
+		if longFlag then
+			flags[longFlag] = true
+			continue
+		end
+
+		-- Check for short flag (-f)
+		local shortFlag: string? = argument:match("^%-(.+)$")
+		if shortFlag then
+			flags[shortFlag] = true
+			continue
+		end
+
+		-- Positional argument (no prefix)
+		table.insert(positional, argument)
 	end
 
 	return {

@@ -3,51 +3,86 @@
 	@class Logging
 	Shared logging utilities for lune scripts.
 
-	Provides consistent colored output and formatting across
-	dump scripts and pipeline stages.
+	Provides consistent colored output and formatting across dump scripts and
+	pipeline stages. Uses simple ASCII symbols for maximum terminal compatibility.
+
+	All logging functions write to stdout except error/fatal which use stderr.
+	Verbose logging can be enabled/disabled globally via setVerbose().
+
+	@dep @lune/stdio -- Terminal I/O and ANSI formatting
 ]=]
 
--- Imports
+-- ===== Imports =====
+
 local stdio = require("@lune/stdio")
 
--- Module
+-- ===== Module =====
+
 local Logging = {}
 
--- ANSI color codes and styles for formatted terminal output
+-- ===== Constants =====
+
+-- ANSI color codes for formatted terminal output
 local COLOR_RESET: string = stdio.color("reset")
 local COLOR_CYAN: string = stdio.color("cyan")
 local COLOR_GREEN: string = stdio.color("green")
 local COLOR_YELLOW: string = stdio.color("yellow")
 local COLOR_RED: string = stdio.color("red")
 local COLOR_BLUE: string = stdio.color("blue")
+
+-- ANSI text styles
 local STYLE_BOLD: string = stdio.style("bold")
 local STYLE_DIM: string = stdio.style("dim")
 
--- Simple ASCII symbols used as visual prefixes for different log levels
+-- Simple ASCII symbols for different log levels (maximum compatibility)
 local SYMBOL_INFO: string = "i"
 local SYMBOL_SUCCESS: string = ">"
 local SYMBOL_WARNING: string = "!"
 local SYMBOL_ERROR: string = "x"
 local SYMBOL_FILE: string = "+"
 
--- Tracks whether verbose logging is enabled
-local verboseEnabled: boolean = false
+-- File size units for human-readable formatting
+local SIZE_UNITS: { string } = { "B", "KB", "MB", "GB" }
+local BYTES_PER_UNIT: number = 1024
 
-export type LogLevel = "info" | "success" | "warn" | "error" | "fatal"
+-- Time unit thresholds
+local MILLISECONDS_PER_SECOND: number = 1000
+
+-- ===== Type Definitions =====
 
 --[=[
-	Enables or disables verbose logging.
+	@type LogLevel
+	Standard log levels supported by the logging system.
+]=]
+export type LogLevel = "info" | "success" | "warn" | "error" | "fatal"
 
-	@param enabled -- Whether to enable verbose output
+-- ===== Module State =====
+
+-- Tracks whether verbose logging is enabled globally
+local verboseEnabled: boolean = false
+
+-- ===== Configuration =====
+
+--[=[
+	Enables or disables verbose logging globally.
+
+	When enabled, verbose() calls will output dimmed text. When disabled,
+	verbose() calls are completely suppressed.
+
+	@param enabled boolean -- True to enable verbose output
 ]=]
 function Logging.setVerbose(enabled: boolean)
 	verboseEnabled = enabled
 end
 
---[=[
-	Logs an info message with blue color and info symbol.
+-- ===== Core Logging Functions =====
 
-	@param message -- Info message to log
+--[=[
+	Logs an informational message with blue color.
+
+	Used for general information, status updates, and progress indicators.
+
+	@param message string -- Info message to log
 ]=]
 function Logging.info(message: string)
 	stdio.write(COLOR_BLUE)
@@ -58,9 +93,11 @@ function Logging.info(message: string)
 end
 
 --[=[
-	Logs a success message with green color and success symbol.
+	Logs a success message with green color.
 
-	@param message -- Success message to log
+	Used for successful operations, completions, and positive outcomes.
+
+	@param message string -- Success message to log
 ]=]
 function Logging.success(message: string)
 	stdio.write(COLOR_GREEN)
@@ -71,9 +108,11 @@ function Logging.success(message: string)
 end
 
 --[=[
-	Logs a warning message with yellow color and warning symbol.
+	Logs a warning message with yellow color.
 
-	@param message -- Warning message to log
+	Used for non-fatal issues, deprecation notices, and cautions.
+
+	@param message string -- Warning message to log
 ]=]
 function Logging.warn(message: string)
 	stdio.write(COLOR_YELLOW)
@@ -84,9 +123,11 @@ function Logging.warn(message: string)
 end
 
 --[=[
-	Logs an error message with red color and error symbol.
+	Logs an error message with red color to stderr.
 
-	@param message -- Error message to log
+	Used for recoverable errors and operation failures.
+
+	@param message string -- Error message to log
 ]=]
 function Logging.error(message: string)
 	stdio.write(COLOR_RED)
@@ -97,9 +138,11 @@ function Logging.error(message: string)
 end
 
 --[=[
-	Logs a fatal error message with bold red color.
+	Logs a fatal error message with bold red color to stderr.
 
-	@param message -- Fatal error message to log
+	Used for unrecoverable errors that will cause program termination.
+
+	@param message string -- Fatal error message to log
 ]=]
 function Logging.fatal(message: string)
 	stdio.write(COLOR_RED)
@@ -110,19 +153,26 @@ function Logging.fatal(message: string)
 	stdio.ewrite(`{message}\n`)
 end
 
+-- ===== Specialized Logging Functions =====
+
 --[=[
 	Prints a section header with bold cyan color.
 
-	@param title -- Section title
+	Used to visually separate major sections in output. Includes leading newline
+	for spacing.
+
+	@param title string -- Section title to display
 ]=]
 function Logging.section(title: string)
 	print(`\n{COLOR_CYAN}{STYLE_BOLD}{title}{COLOR_RESET}`)
 end
 
 --[=[
-	Logs a file operation with green color and file symbol.
+	Logs a successful file operation with green color.
 
-	@param path -- File path that was written
+	Used to report file writes, copies, or other filesystem operations.
+
+	@param path string -- File path that was operated on
 ]=]
 function Logging.file(path: string)
 	stdio.write(COLOR_GREEN)
@@ -133,11 +183,13 @@ function Logging.file(path: string)
 end
 
 --[=[
-	Prints a success message with count and optional secondary info.
+	Prints a success message with count and optional secondary information.
 
-	@param count -- Primary count
-	@param label -- Count label
-	@param secondary -- Optional secondary info
+	Used for summarizing batch operations or reporting statistics.
+
+	@param count number -- Primary count to display
+	@param label string -- Description of what is being counted
+	@param secondary string? -- Optional secondary information in parentheses
 ]=]
 function Logging.successCount(count: number, label: string, secondary: string?)
 	stdio.write(COLOR_GREEN)
@@ -155,9 +207,11 @@ end
 --[=[
 	Prints a progress indicator with percentage and count.
 
-	@param current -- Current progress count
-	@param total -- Total count
-	@param message -- Optional message to append
+	Displays completion progress in the format: [percentage%] (current/total) [message]
+
+	@param current number -- Current progress count (0-based or 1-based)
+	@param total number -- Total count to complete
+	@param message string? -- Optional status message to append
 ]=]
 function Logging.progress(current: number, total: number, message: string?)
 	local percent: number = math.floor((current / total) * 100)
@@ -176,42 +230,29 @@ function Logging.progress(current: number, total: number, message: string?)
 end
 
 --[=[
-	Logs a verbose/debug message (only shown if verbose mode is enabled).
+	Logs a verbose/debug message with dimmed styling.
 
-	@param message -- Verbose message to log
+	Only outputs if verbose mode is enabled via setVerbose(). Used for detailed
+	diagnostic information that would clutter normal output.
+
+	@param message string -- Verbose message to log
 ]=]
 function Logging.verbose(message: string)
-	if verboseEnabled then
-		print(`{STYLE_DIM}{message}{COLOR_RESET}`)
+	if not verboseEnabled then
+		return
 	end
+
+	stdio.write(STYLE_DIM)
+	print(message)
+	stdio.write(COLOR_RESET)
 end
 
 --[=[
-	Prints an indented detail line with tree branch symbol.
+	Prints a dimmed text message.
 
-	@param message -- Detail message
-	@param depth -- Optional indentation depth (default: 1)
-]=]
-function Logging.detail(message: string, depth: number?)
-	local indent: string = string.rep("  ", depth or 1)
-	print(`{indent}├─ {message}`)
-end
+	Used for secondary information or less important status updates.
 
---[=[
-	Prints an indented detail line with tree end symbol.
-
-	@param message -- Detail message
-	@param depth -- Optional indentation depth (default: 1)
-]=]
-function Logging.detailLast(message: string, depth: number?)
-	local indent: string = string.rep("  ", depth or 1)
-	print(`{indent}└─ {message}`)
-end
-
---[=[
-	Prints dimmed text to stdout.
-
-	@param text -- Text to print
+	@param text string -- Text to print with dim styling
 ]=]
 function Logging.dim(text: string)
 	stdio.write(STYLE_DIM)
@@ -219,39 +260,84 @@ function Logging.dim(text: string)
 	stdio.write(COLOR_RESET)
 end
 
---[=[
-	Formats duration in milliseconds to human-readable string.
+-- ===== Tree Structure Formatting =====
 
-	@param ms -- Duration in milliseconds
-	@return Formatted duration string (e.g., "1.23s" or "456ms")
+--[=[
+	Prints an indented detail line with tree branch symbol (├─).
+
+	Used for hierarchical output structures. Should be followed by detailLast()
+	for the final item in a group.
+
+	@param message string -- Detail message to display
+	@param depth number? -- Indentation depth in levels (default: 1)
 ]=]
-function Logging.formatDuration(ms: number): string
-	if ms >= 1000 then
-		return string.format("%.2fs", ms / 1000)
-	end
-	return string.format("%dms", math.floor(ms))
+function Logging.detail(message: string, depth: number?)
+	local indentLevel: number = depth or 1
+	local indent: string = string.rep("  ", indentLevel)
+	print(`{indent}├─ {message}`)
 end
 
 --[=[
-	Formats byte size to human-readable string with units.
+	Prints an indented detail line with tree end symbol (└─).
 
-	@param bytes -- Size in bytes
-	@return Formatted size string (e.g., "1.23 MB" or "456 KB")
+	Used as the final item in a hierarchical group to close the tree structure.
+
+	@param message string -- Detail message to display
+	@param depth number? -- Indentation depth in levels (default: 1)
+]=]
+function Logging.detailLast(message: string, depth: number?)
+	local indentLevel: number = depth or 1
+	local indent: string = string.rep("  ", indentLevel)
+	print(`{indent}└─ {message}`)
+end
+
+-- ===== Formatting Utilities =====
+
+--[=[
+	Formats duration in milliseconds to human-readable string.
+
+	Automatically selects appropriate unit (seconds or milliseconds) based on magnitude.
+
+	@param durationMs number -- Duration in milliseconds
+	@return string -- Formatted duration (e.g., "1.23s" or "456ms")
+]=]
+function Logging.formatDuration(durationMs: number): string
+	if durationMs >= MILLISECONDS_PER_SECOND then
+		local seconds: number = durationMs / MILLISECONDS_PER_SECOND
+		return string.format("%.2fs", seconds)
+	end
+
+	local milliseconds: number = math.floor(durationMs)
+	return string.format("%dms", milliseconds)
+end
+
+--[=[
+	Formats byte size to human-readable string with appropriate units.
+
+	Automatically selects unit (B, KB, MB, GB) based on magnitude. Uses 1024-based
+	conversion (binary) rather than 1000-based (decimal).
+
+	@param bytes number -- Size in bytes
+	@return string -- Formatted size (e.g., "1.23 MB" or "456 KB")
 ]=]
 function Logging.formatSize(bytes: number): string
-	local units: { string } = { "B", "KB", "MB", "GB" }
 	local size: number = bytes
 	local unitIndex: number = 1
 
-	while size >= 1024 and unitIndex < #units do
-		size /= 1024
+	-- Convert to larger units while size exceeds threshold
+	while size >= BYTES_PER_UNIT and unitIndex < #SIZE_UNITS do
+		size /= BYTES_PER_UNIT
 		unitIndex += 1
 	end
 
+	-- Format with appropriate precision
 	if unitIndex == 1 then
-		return string.format("%d %s", size, units[unitIndex])
+		-- Bytes - no decimal places
+		return string.format("%d %s", size, SIZE_UNITS[unitIndex])
+	else
+		-- Larger units - 2 decimal places
+		return string.format("%.2f %s", size, SIZE_UNITS[unitIndex])
 	end
-	return string.format("%.2f %s", size, units[unitIndex])
 end
 
 return Logging

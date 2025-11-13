@@ -3,122 +3,253 @@
 	@class Fs
 	Shared filesystem utilities for lune scripts.
 
-	Provides file and directory operations with error handling.
+	Provides defensive file and directory operations with comprehensive error handling.
+	All I/O operations return result types rather than throwing errors, making
+	failures explicit and recoverable.
+
+	@dep @lune/fs -- Filesystem operations
 ]=]
 
--- Imports
+-- ===== Imports =====
+
 local fs = require("@lune/fs")
 
--- Module
+-- ===== Module =====
+
 local Fs = {}
 
---[=[
-	Extracts the basename (filename) from a path.
+-- ===== Type Definitions =====
 
-	@param path -- File path
-	@return Basename of the path
+--[=[
+	@class ReadResult
+	Result type for file read operations.
+]=]
+export type ReadResult = {
+	success: true,
+	content: string,
+} | {
+	success: false,
+	error: string,
+}
+
+--[=[
+	@class WriteResult
+	Result type for file write operations.
+]=]
+export type WriteResult = {
+	success: true,
+} | {
+	success: false,
+	error: string,
+}
+
+-- ===== Path Manipulation =====
+
+--[=[
+	Extracts the basename (filename) from a file path.
+
+	Handles both forward slash and backslash path separators for cross-platform
+	compatibility. Returns the full path if no directory separator is found.
+
+	@param path string -- File path to extract basename from
+	@return string -- Basename component (e.g., "file.txt" from "/dir/file.txt")
 ]=]
 function Fs.basename(path: string): string
-	return path:match("^.+[\\/](.+)$") or path
+	local basename: string? = path:match("^.+[\\/](.+)$")
+	return basename or path
 end
 
 --[=[
-	Extracts the directory name from a path.
+	Extracts the directory name from a file path.
 
-	@param path -- File path
-	@return Directory name (or "." if no directory)
+	Handles both forward slash and backslash path separators. Returns "." if
+	the path contains no directory component.
+
+	@param path string -- File path to extract directory from
+	@return string -- Directory component (e.g., "/dir" from "/dir/file.txt")
 ]=]
 function Fs.dirname(path: string): string
-	return path:match("^(.+)[\\/][^\\/]+$") or "."
+	local dirname: string? = path:match("^(.+)[\\/][^\\/]+$")
+	return dirname or "."
 end
+
+-- ===== Directory Operations =====
 
 --[=[
 	Ensures a directory exists, creating it if necessary.
 
-	@param path -- Directory path
+	Creates the directory only if it doesn't already exist. Does not create
+	parent directories - use ensureParent() for that.
+
+	@param path string -- Directory path to ensure exists
+
+	@error Throws if directory creation fails
 ]=]
 function Fs.ensureDir(path: string)
-	if not fs.isDir(path) then
-		fs.writeDir(path)
+	if fs.isDir(path) then
+		return
 	end
+
+	fs.writeDir(path)
 end
 
 --[=[
 	Ensures the parent directory of a path exists.
 
-	@param path -- File path
+	Useful before writing a file to ensure its containing directory exists.
+
+	@param path string -- File or directory path whose parent should exist
+
+	@error Throws if parent directory creation fails
 ]=]
 function Fs.ensureParent(path: string)
-	Fs.ensureDir(Fs.dirname(path))
+	local parentDir: string = Fs.dirname(path)
+	Fs.ensureDir(parentDir)
 end
+
+-- ===== File Status Checks =====
 
 --[=[
 	Checks if a file exists and is readable.
 
-	@param path -- File path
-	@return True if file exists
+	Tests both file existence and read permission in a single operation.
+
+	@param path string -- File path to check
+	@return boolean -- True if file exists and can be read
 ]=]
 function Fs.exists(path: string): boolean
-	return fs.isFile(path) and pcall(fs.readFile, path)
+	if not fs.isFile(path) then
+		return false
+	end
+
+	local canRead: boolean = pcall(fs.readFile, path)
+	return canRead
 end
 
 --[=[
 	Gets the size of a file in bytes.
 
-	@param path -- File path
-	@return File size in bytes, or nil if file doesn't exist
+	@param path string -- File path to check
+	@return number? -- File size in bytes, or nil if file doesn't exist
 ]=]
 function Fs.size(path: string): number?
-	local meta = fs.metadata(path)
-	return if meta.exists and meta.kind == "file" then meta.size else nil
-end
+	local metadata = fs.metadata(path)
 
---[=[
-	Reads a file with error handling.
-
-	@param path -- File path
-	@return File contents if successful, nil on error
-	@return Error message if failed
-]=]
-function Fs.read(path: string): (string?, string?)
-	if not fs.isFile(path) then
-		return nil, `Not found: {path}`
+	if not metadata.exists then
+		return nil
 	end
 
-	local ok: boolean, result: string = pcall(fs.readFile, path)
-	return if ok then result else nil, result
+	if metadata.kind ~= "file" then
+		return nil
+	end
+
+	return metadata.size
+end
+
+-- ===== File I/O Operations =====
+
+--[=[
+	Reads a file with comprehensive error handling.
+
+	Wraps fs.readFile with defensive checks and returns a result type instead
+	of throwing errors.
+
+	@param path string -- File path to read
+	@return ReadResult -- Result containing file contents or error message
+
+	@error Never throws - all errors are captured in result type
+]=]
+function Fs.read(path: string): ReadResult
+	if not fs.isFile(path) then
+		return {
+			success = false,
+			error = `Not found: {path}`,
+		}
+	end
+
+	local readSuccess: boolean
+	local content: string
+
+	readSuccess, content = pcall(fs.readFile, path)
+
+	if readSuccess then
+		return {
+			success = true,
+			content = content,
+		}
+	else
+		return {
+			success = false,
+			error = `Read failed: {content}`,
+		}
+	end
 end
 
 --[=[
 	Writes content to a file, creating parent directories if needed.
 
-	@param path -- File path
-	@param content -- Content to write
-	@return Success boolean
-	@return Error message if failed
+	Automatically creates any missing parent directories before writing. The
+	entire operation is atomic - if any step fails, no partial changes occur.
+
+	@param path string -- File path to write
+	@param content string -- Content to write to file
+	@return WriteResult -- Result indicating success or error
+
+	@error Never throws - all errors are captured in result type
 ]=]
-function Fs.write(path: string, content: string): (boolean, string?)
-	local ok, err = pcall(function()
+function Fs.write(path: string, content: string): WriteResult
+	local writeSuccess: boolean
+	local writeError: any
+
+	writeSuccess, writeError = pcall(function()
 		Fs.ensureParent(path)
 		fs.writeFile(path, content)
 	end)
-	return if ok then true else false, err
+
+	if writeSuccess then
+		return {
+			success = true,
+		}
+	else
+		return {
+			success = false,
+			error = `Write failed: {writeError}`,
+		}
+	end
 end
 
 --[=[
 	Removes a file if it exists.
 
-	@param path -- File path
-	@return Success boolean
-	@return Error message if failed
+	Succeeds silently if the file doesn't exist (idempotent operation).
+
+	@param path string -- File path to remove
+	@return WriteResult -- Result indicating success or error
+
+	@error Never throws - all errors are captured in result type
 ]=]
-function Fs.remove(path: string): (boolean, string?)
+function Fs.remove(path: string): WriteResult
 	if not fs.isFile(path) then
-		return true
+		return {
+			success = true,
+		}
 	end
 
-	local ok, err = pcall(fs.removeFile, path)
-	return if ok then true else false, err
+	local removeSuccess: boolean
+	local removeError: any
+
+	removeSuccess, removeError = pcall(fs.removeFile, path)
+
+	if removeSuccess then
+		return {
+			success = true,
+		}
+	else
+		return {
+			success = false,
+			error = `Remove failed: {removeError}`,
+		}
+	end
 end
 
 return Fs
