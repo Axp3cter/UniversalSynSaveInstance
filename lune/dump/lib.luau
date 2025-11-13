@@ -76,6 +76,16 @@ local Lib = {}
 
 -- Utilities
 
+--[=[
+	Normalizes a single tag entry into dictionary format.
+
+	Handles both array-style tags (number keys) and object-style tags.
+	Mutates the tags table in place for performance.
+
+	@param key any -- Tag key (number for arrays, string for objects)
+	@param value any -- Tag value
+	@param tags table -- Output tags dictionary (mutated)
+]=]
 local function normalizeTag(key: any, value: any, tags: { [string]: any })
 	if type(key) == "number" then
 		if type(value) == "string" then
@@ -101,7 +111,7 @@ function Lib.tags(raw: { any }?): { [string]: any }
 		return {}
 	end
 
-	local tags = {}
+	local tags: { [string]: any } = {}
 	for key, value in raw do
 		normalizeTag(key, value, tags)
 	end
@@ -140,13 +150,20 @@ end
 
 -- File I/O
 
+--[=[
+	Ensures output directory exists, creating if needed.
+
+	@error Throws if directory creation fails
+]=]
 local function ensureDir()
-	if not pcall(function()
+	local ok, result = pcall(function()
 		if not fs.isDir(OUTPUT_DIR) then
 			fs.writeDir(OUTPUT_DIR)
 		end
-	end) then
-		error(`Failed to create {OUTPUT_DIR}`)
+	end)
+
+	if not ok then
+		error(`Failed to create {OUTPUT_DIR}: {result}`)
 	end
 end
 
@@ -160,8 +177,9 @@ end
 function Lib.write(name: string, content: string)
 	ensureDir()
 	local path = `{OUTPUT_DIR}/{name}`
-	if not pcall(fs.writeFile, path, content) then
-		error(`Failed to write {path}`)
+	local ok, err = pcall(fs.writeFile, path, content)
+	if not ok then
+		error(`Failed to write file {path}: {err}`)
 	end
 	Logging.file(path)
 end
@@ -175,8 +193,9 @@ end
 ]=]
 function Lib.json(name: string, data: any)
 	local result = Serde.encodeJson(data, true)
+
 	if not result.success then
-		error(`JSON encode failed: {result.error}`)
+		error(`JSON encode failed for {name}: {result.error}`)
 	end
 
 	local filename = name
@@ -189,24 +208,52 @@ end
 
 -- Logging
 
-function Lib.success(count: number, label: string, extra: string?)
+--[=[
+	Logs success message with count.
+
+	@param count number -- Item count
+	@param label string -- Item label
+	@param extra string? -- Optional extra info
+]=]
+function Lib.success(count: number, label: string, extra: string?): ()
 	Logging.successCount(count, label, extra)
 end
 
-function Lib.error(msg: string)
+--[=[
+	Logs error message.
+
+	@param msg string -- Error message
+]=]
+function Lib.error(msg: string): ()
 	Logging.error(msg)
 end
 
-function Lib.warn(msg: string)
+--[=[
+	Logs warning message.
+
+	@param msg string -- Warning message
+]=]
+function Lib.warn(msg: string): ()
 	Logging.warn(msg)
 end
 
-function Lib.info(msg: string)
+--[=[
+	Logs info message.
+
+	@param msg string -- Info message
+]=]
+function Lib.info(msg: string): ()
 	Logging.info(msg)
 end
 
 -- API Fetching
 
+--[=[
+	Attempts to fetch a specific API dump version from CDN.
+
+	@param hash string -- Version hash to fetch
+	@return FetchResult -- Success/failure with data or error
+]=]
 local function tryFetch(hash: string): FetchResult
 	Logging.verbose(`Fetching {hash}...`)
 
@@ -230,6 +277,26 @@ local function tryFetch(hash: string): FetchResult
 	return { ok = true, data = parseResult.data, error = nil }
 end
 
+--[=[
+	Counts version hashes in deployment history.
+
+	@param history string -- Deployment history text
+	@return number -- Total version count
+]=]
+local function countVersions(history: string): number
+	local count = 0
+	for _ in string.gmatch(history, "version%-[^%s]+") do
+		count += 1
+	end
+	return count
+end
+
+--[=[
+	Finds latest accessible API dump by scanning deployment history.
+
+	@return ApiDump -- Latest accessible dump
+	@error Throws if no accessible dump found
+]=]
 local function findLatest(): ApiDump
 	Logging.info("Fetching deployment history...")
 
@@ -241,11 +308,7 @@ local function findLatest(): ApiDump
 	local history = historyResult.response.body
 	Logging.dim(`History size: {Logging.formatSize(#history)}`)
 
-	local totalVersions = 0
-	for _ in string.gmatch(history, "version%-[^%s]+") do
-		totalVersions += 1
-	end
-
+	local totalVersions = countVersions(history)
 	Logging.info(`Checking {totalVersions} versions...`)
 
 	local attempts = 0
@@ -335,7 +398,7 @@ end
 	@return ClassMap -- Name-to-class dictionary
 ]=]
 function Lib.classes(list: { Class }): ClassMap
-	local map = table.create(#list)
+	local map: ClassMap = table.create(#list)
 	for _, class in list do
 		map[class.Name] = class
 	end
