@@ -5,7 +5,7 @@
 
   "output": {
     "directory": "generated",
-    "openInEditor": true,
+    "openInEditor": false,
     "editor": "code"
   },
 

@@ -16,14 +16,14 @@
 local Process = require("@lune/process")
 local DateTime = require("@lune/datetime")
 local stdio = require("@lune/stdio")
-local Logger = require("./lib/logger")
-local Config = require("./lib/config")
-local Fs = require("./lib/fs")
-local Darklua = require("./stages/darklua")
-local Wax = require("./stages/wax")
-local Compose = require("./stages/composer")
-local Deployment = require("./stages/deployment")
-local Stylua = require("./stages/stylua")
+local Logger = require("./pipeline/lib/logger")
+local Config = require("./pipeline/lib/config")
+local Fs = require("./pipeline/lib/fs")
+local Darklua = require("./pipeline/stages/darklua")
+local Wax = require("./pipeline/stages/wax")
+local Compose = require("./pipeline/stages/composer")
+local Deployment = require("./pipeline/stages/deployment")
+local Stylua = require("./pipeline/stages/stylua")
 
 -- Process exit codes for success and failure states
 local EXIT_SUCCESS: number = 0

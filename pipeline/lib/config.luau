@@ -187,12 +187,16 @@ function Config.validate(config: any): (boolean, string?)
 			return false, `Build '{name}' must be a table`
 		end
 
-		if not buildCfg.input or type(buildCfg.input) ~= "string" then
-			return false, `Build '{name}' missing 'input' string`
-		end
+		-- Skip input/output validation for builds that extend another build
+		-- These will be validated after inheritance resolution
+		if not buildCfg.extends then
+			if not buildCfg.input or type(buildCfg.input) ~= "string" then
+				return false, `Build '{name}' missing 'input' string`
+			end
 
-		if not buildCfg.output or type(buildCfg.output) ~= "string" then
-			return false, `Build '{name}' missing 'output' string`
+			if not buildCfg.output or type(buildCfg.output) ~= "string" then
+				return false, `Build '{name}' missing 'output' string`
+			end
 		end
 	end
 
