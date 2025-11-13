@@ -16,10 +16,11 @@
 
 -- Imports
 local DateTime = require("@lune/datetime")
-local Logger = require("../lib/logger")
-local Composer = require("../lib/composer")
-local Fs = require("../lib/fs")
-local Config = require("../lib/config")
+local Lib = require("../lib")
+local Logger = Lib.Logger
+local Composer = Lib.Composer
+local Fs = Lib.Fs
+local Config = Lib.Config
 
 -- Types
 export type ComposeResult = {

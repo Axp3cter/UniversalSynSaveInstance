@@ -17,9 +17,10 @@
 -- Imports
 local Process = require("@lune/process")
 local DateTime = require("@lune/datetime")
-local Logger = require("../lib/logger")
-local Fs = require("../lib/fs")
-local Config = require("../lib/config")
+local Lib = require("../lib")
+local Logger = Lib.Logger
+local Fs = Lib.Fs
+local Config = Lib.Config
 
 -- Types
 export type BundleResult = {
