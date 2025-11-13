@@ -8,7 +8,7 @@
 
 	@usage
 	```bash
-	lune run pipeline/init.luau [build-config-name] [--ci] [--verbose]
+	lune run lune/pipeline/init.luau [build-config-name] [--ci] [--verbose]
 	```
 ]=]
 
@@ -16,21 +16,21 @@
 local Process = require("@lune/process")
 local DateTime = require("@lune/datetime")
 local stdio = require("@lune/stdio")
-local Lib = require("./pipeline/lib")
+local Lib = require("./lib")
 local Logger = Lib.Logger
 local Config = Lib.Config
 local Fs = Lib.Fs
-local Darklua = require("./pipeline/stages/darklua")
-local Wax = require("./pipeline/stages/wax")
-local Compose = require("./pipeline/stages/composer")
-local Deployment = require("./pipeline/stages/deployment")
-local Stylua = require("./pipeline/stages/stylua")
+local Darklua = require("./stages/darklua")
+local Wax = require("./stages/wax")
+local Compose = require("./stages/composer")
+local Deployment = require("./stages/deployment")
+local Stylua = require("./stages/stylua")
 
 -- Process exit codes for success and failure states
 local EXIT_SUCCESS: number = 0
 local EXIT_FAILURE: number = 1
 -- Default path to pipeline configuration file
-local DEFAULT_CONFIG_PATH: string = "pipeline/.pcmp.json"
+local DEFAULT_CONFIG_PATH: string = "lune/pipeline/.pcmp.json"
 
 -- Types
 type BuildContext = {

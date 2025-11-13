@@ -14,11 +14,13 @@
 	- Class inheritance checking
 ]=]
 
--- Imports
+-- ===== Imports =====
+
 local fs = require("@lune/fs")
-local net = require("@lune/net")
-local serde = require("@lune/serde")
 local stdio = require("@lune/stdio")
+local Logging = require("../shared/logging")
+local Http = require("../shared/http")
+local Serde = require("../shared/serde")
 
 -- Type Definitions
 
@@ -115,18 +117,6 @@ local Lib = {}
 
 --[=[
 	@private
-	Prints dimmed text to stdout.
-
-	@param text -- Text to print
-]=]
-local function dim(text: string)
-	stdio.write(stdio.style("dim"))
-	print(text)
-	stdio.write(stdio.style("reset"))
-end
-
---[=[
-	@private
 	Fetches specific API dump version from Roblox CDN.
 
 	@param hash -- Version hash
@@ -134,30 +124,20 @@ end
 	@return boolean -- Success status
 ]=]
 local function tryVersion(hash: string): (ApiDump?, boolean)
-	local url: string
-	local ok: boolean
-	local response: any
-	local decodeOk: boolean
-	local decoded: any
+	local url: string = `https://setup.rbxcdn.com/{hash}-Full-API-Dump.json`
 
-	url = `https://setup.rbxcdn.com/{hash}-Full-API-Dump.json`
-
-	ok, response = pcall(net.request, url)
-	if not ok then
+	local httpResult = Http.get(url)
+	if not httpResult.success then
 		return nil, false
 	end
 
-	if not response.ok then
+	local decodeResult = Serde.decodeJson(httpResult.response.body)
+	if not decodeResult.success then
 		return nil, false
 	end
 
-	decodeOk, decoded = pcall(serde.decode, "json", response.body)
-	if not decodeOk then
-		return nil, false
-	end
-
-	dim(`Fetched {hash}`)
-	return decoded, true
+	Logging.dim(`Fetched {hash}`)
+	return decodeResult.data, true
 end
 
 --[=[
@@ -168,23 +148,20 @@ end
 	@error Throws if no valid dump found
 ]=]
 local function findLatest(): ApiDump
-	local ok: boolean
-	local response: any
-	local history: string
-	local hash: string?
-	local api: ApiDump?
-	local success: boolean
+	local historyUrl: string = "https://setup.rbxcdn.com/DeployHistory.txt"
+	local httpResult = Http.get(historyUrl)
 
-	ok, response = pcall(net.request, "https://setup.rbxcdn.com/DeployHistory.txt")
-	if not ok then
+	if not httpResult.success then
 		error("Failed to fetch deployment history")
 	end
 
-	history = response.body
+	local history: string = httpResult.response.body
 
 	for line in string.gmatch(history, "[^\r\n]+") do
-		hash = string.match(line, "(version%-[^%s]+)")
+		local hash: string? = string.match(line, "(version%-[^%s]+)")
 		if hash then
+			local api: ApiDump?
+			local success: boolean
 			api, success = tryVersion(hash)
 			if success and api then
 				return api
@@ -286,7 +263,7 @@ function Lib.write(name: string, content: string)
 	local writeOk: boolean
 	local writeErr: any
 
-	dir = "scripts/dumps"
+	dir = "lune/dump/gen"
 
 	ok, err = pcall(function()
 		if not fs.isDir(dir) then
@@ -305,10 +282,7 @@ function Lib.write(name: string, content: string)
 		error(`Failed to write file {path}: {writeErr}`)
 	end
 
-	stdio.write(stdio.color("green"))
-	stdio.write("+ ")
-	stdio.write(stdio.color("reset"))
-	print(path)
+	Logging.file(path)
 end
 
 --[=[
@@ -349,15 +323,7 @@ end
 	@param secondary -- Optional secondary info
 ]=]
 function Lib.success(count: number, label: string, secondary: string?)
-	stdio.write(stdio.color("green"))
-	stdio.write("> ")
-	stdio.write(stdio.color("reset"))
-
-	if secondary then
-		print(`{count} {label} ({secondary})`)
-	else
-		print(`{count} {label}`)
-	end
+	Logging.successCount(count, label, secondary)
 end
 
 --[=[
@@ -371,18 +337,19 @@ end
 	@error Throws if serialization or write fails
 ]=]
 function Lib.json(name: string, data: any)
-	local encoded: string
-	local filename: string
+	local encodeResult = Serde.encodeJson(data, true)
 
-	encoded = serde.encode("json", data, true)
+	if not encodeResult.success then
+		error(`Failed to encode JSON: {encodeResult.error}`)
+	end
 
 	-- Include hash in filename if available
-	filename = name
+	local filename: string = name
 	if data.metadata and data.metadata.version and data.metadata.version ~= "latest" then
 		filename = `{name}-{data.metadata.version}`
 	end
 
-	Lib.write(`{filename}.json`, encoded)
+	Lib.write(`{filename}.json`, encodeResult.json)
 end
 
 --[=[
@@ -391,10 +358,7 @@ end
 	@param message -- Error message
 ]=]
 function Lib.error(message: string)
-	stdio.write(stdio.color("red"))
-	stdio.write("x ")
-	stdio.write(stdio.color("reset"))
-	stdio.ewrite(`{message}\n`)
+	Logging.error(message)
 end
 
 --[=[
@@ -403,10 +367,7 @@ end
 	@param message -- Warning message
 ]=]
 function Lib.warn(message: string)
-	stdio.write(stdio.color("yellow"))
-	stdio.write("! ")
-	stdio.write(stdio.color("reset"))
-	print(message)
+	Logging.warn(message)
 end
 
 --[=[
@@ -415,10 +376,7 @@ end
 	@param message -- Info message
 ]=]
 function Lib.info(message: string)
-	stdio.write(stdio.color("blue"))
-	stdio.write("i ")
-	stdio.write(stdio.color("reset"))
-	print(message)
+	Logging.info(message)
 end
 
 --[=[

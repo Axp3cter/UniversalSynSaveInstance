@@ -7,7 +7,8 @@
 	GitHub API integration, and template composition utilities.
 ]=]
 
--- Imports
+-- ===== Imports =====
+
 local fs = require("@lune/fs")
 local stdio = require("@lune/stdio")
 local serde = require("@lune/serde")
@@ -16,6 +17,12 @@ local net = require("@lune/net")
 local task = require("@lune/task")
 local Process = require("@lune/process")
 
+-- Shared modules
+local Logging = require("../shared/logging")
+local SharedFs = require("../shared/fs")
+local Http = require("../shared/http")
+local Serde = require("../shared/serde")
+
 -- Module
 local Lib = {}
 
@@ -23,169 +30,36 @@ local Lib = {}
 	@within Lib
 	@class Logger
 	Colored logging utilities for the build pipeline.
+
+	Re-exports the shared Logging module with additional pipeline-specific functions.
 ]=]
 local Logger = {}
 Lib.Logger = Logger
 
--- ANSI color codes and styles for formatted terminal output
-local COLOR_RESET: string = stdio.color("reset")
-local COLOR_CYAN: string = stdio.color("cyan")
-local COLOR_GREEN: string = stdio.color("green")
-local COLOR_YELLOW: string = stdio.color("yellow")
-local COLOR_RED: string = stdio.color("red")
-local STYLE_BOLD: string = stdio.style("bold")
-local STYLE_DIM: string = stdio.style("dim")
-
--- Unicode symbols used as visual prefixes for different log levels
-local SYMBOL_INFO: string = "▶"
-local SYMBOL_SUCCESS: string = "✓"
-local SYMBOL_WARNING: string = "⚠"
-local SYMBOL_ERROR: string = "✗"
-
--- Tracks whether verbose logging is enabled
-local verboseEnabled: boolean = false
-
-export type LogLevel = "info" | "success" | "warn" | "error" | "fatal"
-
-function Logger.setVerbose(enabled: boolean)
-	verboseEnabled = enabled
-end
-
-function Logger.info(message: string)
-	print(`{COLOR_CYAN}{SYMBOL_INFO}{COLOR_RESET} {message}`)
-end
-
-function Logger.success(message: string)
-	print(`{COLOR_GREEN}{SYMBOL_SUCCESS}{COLOR_RESET} {message}`)
-end
-
-function Logger.warn(message: string)
-	print(`{COLOR_YELLOW}{SYMBOL_WARNING}{COLOR_RESET} {message}`)
-end
-
-function Logger.error(message: string)
-	print(`{COLOR_RED}{SYMBOL_ERROR}{COLOR_RESET} {message}`)
-end
-
-function Logger.fatal(message: string)
-	print(`{COLOR_RED}{STYLE_BOLD}{SYMBOL_ERROR} {message}{COLOR_RESET}`)
-end
-
-function Logger.section(title: string)
-	print(`\n{COLOR_CYAN}{STYLE_BOLD}{title}{COLOR_RESET}`)
-end
-
-function Logger.progress(current: number, total: number, message: string?)
-	local percent: number = math.floor((current / total) * 100)
-	local progressText: string = `[{percent}%] ({current}/{total})`
-
-	if not message then
-		print(`{COLOR_CYAN}{SYMBOL_INFO}{COLOR_RESET} {progressText}`)
-		return
-	end
-
-	print(`{COLOR_CYAN}{SYMBOL_INFO}{COLOR_RESET} {progressText} {message}`)
-end
-
-function Logger.verbose(message: string)
-	if verboseEnabled then
-		print(`{STYLE_DIM}{message}{COLOR_RESET}`)
-	end
-end
-
-function Logger.detail(message: string, depth: number?)
-	local indent: string = string.rep("  ", depth or 1)
-	print(`{indent}├─ {message}`)
-end
-
-function Logger.detailLast(message: string, depth: number?)
-	local indent: string = string.rep("  ", depth or 1)
-	print(`{indent}└─ {message}`)
-end
-
-function Logger.formatDuration(ms: number): string
-	if ms >= 1000 then
-		return string.format("%.2fs", ms / 1000)
-	end
-	return string.format("%dms", math.floor(ms))
-end
-
-function Logger.formatSize(bytes: number): string
-	local units: { string } = { "B", "KB", "MB", "GB" }
-	local size: number = bytes
-	local unitIndex: number = 1
-
-	while size >= 1024 and unitIndex < #units do
-		size /= 1024
-		unitIndex += 1
-	end
-
-	if unitIndex == 1 then
-		return string.format("%d %s", size, units[unitIndex])
-	end
-	return string.format("%.2f %s", size, units[unitIndex])
-end
+-- Re-export shared logging functions
+Logger.setVerbose = Logging.setVerbose
+Logger.info = Logging.info
+Logger.success = Logging.success
+Logger.warn = Logging.warn
+Logger.error = Logging.error
+Logger.fatal = Logging.fatal
+Logger.section = Logging.section
+Logger.progress = Logging.progress
+Logger.verbose = Logging.verbose
+Logger.detail = Logging.detail
+Logger.detailLast = Logging.detailLast
+Logger.formatDuration = Logging.formatDuration
+Logger.formatSize = Logging.formatSize
 
 --[=[
 	@within Lib
 	@class Fs
 	Filesystem operations for the build pipeline.
+
+	Re-exports the shared Fs module for filesystem operations.
 ]=]
-local Fs = {}
+local Fs = SharedFs
 Lib.Fs = Fs
-
-function Fs.basename(path: string): string
-	return path:match("^.+[\\/](.+)$") or path
-end
-
-function Fs.dirname(path: string): string
-	return path:match("^(.+)[\\/][^\\/]+$") or "."
-end
-
-function Fs.ensureDir(path: string)
-	if not fs.isDir(path) then
-		fs.writeDir(path)
-	end
-end
-
-function Fs.ensureParent(path: string)
-	Fs.ensureDir(Fs.dirname(path))
-end
-
-function Fs.exists(path: string): boolean
-	return fs.isFile(path) and pcall(fs.readFile, path)
-end
-
-function Fs.size(path: string): number?
-	local meta = fs.metadata(path)
-	return if meta.exists and meta.kind == "file" then meta.size else nil
-end
-
-function Fs.read(path: string): (string?, string?)
-	if not fs.isFile(path) then
-		return nil, `Not found: {path}`
-	end
-
-	local ok: boolean, result: string = pcall(fs.readFile, path)
-	return if ok then result else nil, result
-end
-
-function Fs.write(path: string, content: string): (boolean, string?)
-	local ok, err = pcall(function()
-		Fs.ensureParent(path)
-		fs.writeFile(path, content)
-	end)
-	return if ok then true else false, err
-end
-
-function Fs.remove(path: string): (boolean, string?)
-	if not fs.isFile(path) then
-		return true
-	end
-
-	local ok, err = pcall(fs.removeFile, path)
-	return if ok then true else false, err
-end
 
 --[=[
 	@within Lib

@@ -9,7 +9,7 @@
 	Reports success/failure counts and total execution time.
 
 	Usage:
-	  lune run scripts/run.luau [version-hash]
+	  lune run lune/dump/init.luau [version-hash]
 
 	Exit codes:
 	  0 - All dumpers succeeded
@@ -20,7 +20,7 @@
 local fs = require("@lune/fs")
 local Process = require("@lune/process")
 local stdio = require("@lune/stdio")
-local lib = require("lib")
+local lib = require("./lib")
 
 -- Type Definitions
 
@@ -50,7 +50,7 @@ local function discoverScripts(): { string }
 	local entries: any
 	local files: { string }
 
-	ok, entries = pcall(fs.readDir, "scripts/dumpers")
+	ok, entries = pcall(fs.readDir, "lune/dump/scripts")
 	if not ok then
 		error("Failed to read dumpers directory")
 	end
@@ -141,7 +141,7 @@ local function executeScript(file: string, hash: string?): boolean
 	local result: any
 
 	args = if hash then { hash } else {}
-	path = `scripts/dumpers/{file}`
+	path = `lune/dump/scripts/{file}`
 
 	ok, result = pcall(Process.exec, "lune", { "run", path, table.unpack(args) }, {
 		stdio = "inherit",
