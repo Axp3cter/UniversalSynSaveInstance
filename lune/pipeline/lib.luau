@@ -7,7 +7,8 @@
 	GitHub API integration, and template composition utilities.
 ]=]
 
--- Imports
+-- ===== Imports =====
+
 local fs = require("@lune/fs")
 local stdio = require("@lune/stdio")
 local serde = require("@lune/serde")
@@ -15,8 +16,12 @@ local DateTime = require("@lune/datetime")
 local net = require("@lune/net")
 local task = require("@lune/task")
 local Process = require("@lune/process")
+
+-- Shared modules
 local Logging = require("../shared/logging")
 local SharedFs = require("../shared/fs")
+local Http = require("../shared/http")
+local Serde = require("../shared/serde")
 
 -- Module
 local Lib = {}
