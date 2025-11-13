@@ -23,11 +23,12 @@ local COLOR_BLUE: string = stdio.color("blue")
 local STYLE_BOLD: string = stdio.style("bold")
 local STYLE_DIM: string = stdio.style("dim")
 
--- Unicode symbols used as visual prefixes for different log levels
-local SYMBOL_INFO: string = "▶"
-local SYMBOL_SUCCESS: string = "✓"
-local SYMBOL_WARNING: string = "⚠"
-local SYMBOL_ERROR: string = "✗"
+-- Simple ASCII symbols used as visual prefixes for different log levels
+local SYMBOL_INFO: string = "i"
+local SYMBOL_SUCCESS: string = ">"
+local SYMBOL_WARNING: string = "!"
+local SYMBOL_ERROR: string = "x"
+local SYMBOL_FILE: string = "+"
 
 -- Tracks whether verbose logging is enabled
 local verboseEnabled: boolean = false
@@ -44,21 +45,29 @@ function Logging.setVerbose(enabled: boolean)
 end
 
 --[=[
-	Logs an info message with cyan color and info symbol.
+	Logs an info message with blue color and info symbol.
 
 	@param message -- Info message to log
 ]=]
 function Logging.info(message: string)
-	print(`{COLOR_CYAN}{SYMBOL_INFO}{COLOR_RESET} {message}`)
+	stdio.write(COLOR_BLUE)
+	stdio.write(SYMBOL_INFO)
+	stdio.write(" ")
+	stdio.write(COLOR_RESET)
+	print(message)
 end
 
 --[=[
-	Logs a success message with green color and checkmark symbol.
+	Logs a success message with green color and success symbol.
 
 	@param message -- Success message to log
 ]=]
 function Logging.success(message: string)
-	print(`{COLOR_GREEN}{SYMBOL_SUCCESS}{COLOR_RESET} {message}`)
+	stdio.write(COLOR_GREEN)
+	stdio.write(SYMBOL_SUCCESS)
+	stdio.write(" ")
+	stdio.write(COLOR_RESET)
+	print(message)
 end
 
 --[=[
@@ -67,7 +76,11 @@ end
 	@param message -- Warning message to log
 ]=]
 function Logging.warn(message: string)
-	print(`{COLOR_YELLOW}{SYMBOL_WARNING}{COLOR_RESET} {message}`)
+	stdio.write(COLOR_YELLOW)
+	stdio.write(SYMBOL_WARNING)
+	stdio.write(" ")
+	stdio.write(COLOR_RESET)
+	print(message)
 end
 
 --[=[
@@ -76,7 +89,11 @@ end
 	@param message -- Error message to log
 ]=]
 function Logging.error(message: string)
-	print(`{COLOR_RED}{SYMBOL_ERROR}{COLOR_RESET} {message}`)
+	stdio.write(COLOR_RED)
+	stdio.write(SYMBOL_ERROR)
+	stdio.write(" ")
+	stdio.write(COLOR_RESET)
+	stdio.ewrite(`{message}\n`)
 end
 
 --[=[
@@ -85,7 +102,12 @@ end
 	@param message -- Fatal error message to log
 ]=]
 function Logging.fatal(message: string)
-	print(`{COLOR_RED}{STYLE_BOLD}{SYMBOL_ERROR} {message}{COLOR_RESET}`)
+	stdio.write(COLOR_RED)
+	stdio.write(STYLE_BOLD)
+	stdio.write(SYMBOL_ERROR)
+	stdio.write(" ")
+	stdio.write(COLOR_RESET)
+	stdio.ewrite(`{message}\n`)
 end
 
 --[=[
@@ -95,6 +117,39 @@ end
 ]=]
 function Logging.section(title: string)
 	print(`\n{COLOR_CYAN}{STYLE_BOLD}{title}{COLOR_RESET}`)
+end
+
+--[=[
+	Logs a file operation with green color and file symbol.
+
+	@param path -- File path that was written
+]=]
+function Logging.file(path: string)
+	stdio.write(COLOR_GREEN)
+	stdio.write(SYMBOL_FILE)
+	stdio.write(" ")
+	stdio.write(COLOR_RESET)
+	print(path)
+end
+
+--[=[
+	Prints a success message with count and optional secondary info.
+
+	@param count -- Primary count
+	@param label -- Count label
+	@param secondary -- Optional secondary info
+]=]
+function Logging.successCount(count: number, label: string, secondary: string?)
+	stdio.write(COLOR_GREEN)
+	stdio.write(SYMBOL_SUCCESS)
+	stdio.write(" ")
+	stdio.write(COLOR_RESET)
+
+	if secondary then
+		print(`{count} {label} ({secondary})`)
+	else
+		print(`{count} {label}`)
+	end
 end
 
 --[=[
@@ -108,12 +163,16 @@ function Logging.progress(current: number, total: number, message: string?)
 	local percent: number = math.floor((current / total) * 100)
 	local progressText: string = `[{percent}%] ({current}/{total})`
 
-	if not message then
-		print(`{COLOR_CYAN}{SYMBOL_INFO}{COLOR_RESET} {progressText}`)
-		return
-	end
+	stdio.write(COLOR_BLUE)
+	stdio.write(SYMBOL_INFO)
+	stdio.write(" ")
+	stdio.write(COLOR_RESET)
 
-	print(`{COLOR_CYAN}{SYMBOL_INFO}{COLOR_RESET} {progressText} {message}`)
+	if message then
+		print(`{progressText} {message}`)
+	else
+		print(progressText)
+	end
 end
 
 --[=[

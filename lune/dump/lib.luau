@@ -19,6 +19,7 @@ local fs = require("@lune/fs")
 local net = require("@lune/net")
 local serde = require("@lune/serde")
 local stdio = require("@lune/stdio")
+local Logging = require("../shared/logging")
 
 -- Type Definitions
 
@@ -115,18 +116,6 @@ local Lib = {}
 
 --[=[
 	@private
-	Prints dimmed text to stdout.
-
-	@param text -- Text to print
-]=]
-local function dim(text: string)
-	stdio.write(stdio.style("dim"))
-	print(text)
-	stdio.write(stdio.style("reset"))
-end
-
---[=[
-	@private
 	Fetches specific API dump version from Roblox CDN.
 
 	@param hash -- Version hash
@@ -156,7 +145,7 @@ local function tryVersion(hash: string): (ApiDump?, boolean)
 		return nil, false
 	end
 
-	dim(`Fetched {hash}`)
+	Logging.dim(`Fetched {hash}`)
 	return decoded, true
 end
 
@@ -305,10 +294,7 @@ function Lib.write(name: string, content: string)
 		error(`Failed to write file {path}: {writeErr}`)
 	end
 
-	stdio.write(stdio.color("green"))
-	stdio.write("+ ")
-	stdio.write(stdio.color("reset"))
-	print(path)
+	Logging.file(path)
 end
 
 --[=[
@@ -349,15 +335,7 @@ end
 	@param secondary -- Optional secondary info
 ]=]
 function Lib.success(count: number, label: string, secondary: string?)
-	stdio.write(stdio.color("green"))
-	stdio.write("> ")
-	stdio.write(stdio.color("reset"))
-
-	if secondary then
-		print(`{count} {label} ({secondary})`)
-	else
-		print(`{count} {label}`)
-	end
+	Logging.successCount(count, label, secondary)
 end
 
 --[=[
@@ -391,10 +369,7 @@ end
 	@param message -- Error message
 ]=]
 function Lib.error(message: string)
-	stdio.write(stdio.color("red"))
-	stdio.write("x ")
-	stdio.write(stdio.color("reset"))
-	stdio.ewrite(`{message}\n`)
+	Logging.error(message)
 end
 
 --[=[
@@ -403,10 +378,7 @@ end
 	@param message -- Warning message
 ]=]
 function Lib.warn(message: string)
-	stdio.write(stdio.color("yellow"))
-	stdio.write("! ")
-	stdio.write(stdio.color("reset"))
-	print(message)
+	Logging.warn(message)
 end
 
 --[=[
@@ -415,10 +387,7 @@ end
 	@param message -- Info message
 ]=]
 function Lib.info(message: string)
-	stdio.write(stdio.color("blue"))
-	stdio.write("i ")
-	stdio.write(stdio.color("reset"))
-	print(message)
+	Logging.info(message)
 end
 
 --[=[
