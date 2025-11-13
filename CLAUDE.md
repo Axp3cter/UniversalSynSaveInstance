@@ -80,6 +80,8 @@ The build system uses a two-stage process:
   - `logging.luau` - Colored logging, progress indicators, formatting
   - `fs.luau` - Filesystem operations with error handling
   - `cli.luau` - CLI argument parsing and error handling
+  - `http.luau` - HTTP client with retries and exponential backoff
+  - `serde.luau` - JSON encoding/decoding with standardized output format
 - Each dumper is autonomous and follows the pattern:
   1. Fetch API dump via `lib.fetch()`
   2. Process/analyze specific aspect
