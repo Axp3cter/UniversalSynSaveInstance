@@ -122,22 +122,34 @@ local Lib = {}
 	@param hash -- Version hash
 	@return ApiDump? -- API dump if successful
 	@return boolean -- Success status
+	@return string? -- Error message if failed
 ]=]
-local function tryVersion(hash: string): (ApiDump?, boolean)
+local function tryVersion(hash: string): (ApiDump?, boolean, string?)
 	local url: string = `https://setup.rbxcdn.com/{hash}-Full-API-Dump.json`
 
+	Logging.verbose(`Attempting to fetch {hash}...`)
 	local httpResult = Http.get(url)
 	if not httpResult.success then
-		return nil, false
+		local errorMsg = `Failed to fetch {hash}: {httpResult.error}`
+		if httpResult.statusCode == 403 then
+			Logging.verbose(`Access denied for {hash}`)
+		elseif httpResult.statusCode == 404 then
+			Logging.verbose(`Version {hash} not found`)
+		else
+			Logging.verbose(errorMsg)
+		end
+		return nil, false, errorMsg
 	end
 
 	local decodeResult = Serde.decodeJson(httpResult.response.body)
 	if not decodeResult.success then
-		return nil, false
+		local errorMsg = `Failed to parse JSON for {hash}: {decodeResult.error}`
+		Logging.verbose(errorMsg)
+		return nil, false, errorMsg
 	end
 
-	Logging.dim(`Fetched {hash}`)
-	return decodeResult.data, true
+	Logging.dim(`Fetched {hash} ({Logging.formatSize(#httpResult.response.body)})`)
+	return decodeResult.data, true, nil
 end
 
 --[=[
@@ -149,27 +161,54 @@ end
 ]=]
 local function findLatest(): ApiDump
 	local historyUrl: string = "https://setup.rbxcdn.com/DeployHistory.txt"
+
+	Logging.info("Fetching Roblox deployment history...")
 	local httpResult = Http.get(historyUrl)
 
 	if not httpResult.success then
-		error("Failed to fetch deployment history")
+		error(`Failed to fetch deployment history: {httpResult.error}`)
 	end
 
 	local history: string = httpResult.response.body
+	Logging.dim(`Retrieved deployment history ({Logging.formatSize(#history)})`)
+
+	-- Count total versions for progress reporting
+	local totalVersions = 0
+	for _ in string.gmatch(history, "version%-[^%s]+") do
+		totalVersions += 1
+	end
+
+	Logging.info(`Searching through {totalVersions} deployment versions for accessible API dump...`)
+
+	local attemptCount = 0
+	local lastError: string = "Unknown error"
 
 	for line in string.gmatch(history, "[^\r\n]+") do
 		local hash: string? = string.match(line, "(version%-[^%s]+)")
 		if hash then
+			attemptCount += 1
 			local api: ApiDump?
 			local success: boolean
-			api, success = tryVersion(hash)
+			local errorMsg: string?
+
+			api, success, errorMsg = tryVersion(hash)
 			if success and api then
+				Logging.success(`Found accessible API dump: {hash}`)
 				return api
+			end
+
+			if errorMsg then
+				lastError = errorMsg
+			end
+
+			-- Show progress every 10 attempts
+			if attemptCount % 10 == 0 then
+				Logging.progress(attemptCount, totalVersions, "Checking versions...")
 			end
 		end
 	end
 
-	error("Failed to fetch any valid API dump")
+	error(`Failed to fetch any accessible API dump after checking {attemptCount} versions. Last error: {lastError}`)
 end
 
 -- Public API

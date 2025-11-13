@@ -15,6 +15,7 @@
 
 local net = require("@lune/net")
 local task = require("@lune/task")
+local Logging = require("./logging")
 
 -- ===== Module =====
 
@@ -167,6 +168,8 @@ function Http.request(request: HttpRequest): HttpResult
 		local requestSuccess: boolean
 		local response: any
 
+		Logging.verbose(`HTTP {request.method or "GET"} {request.url}`)
+
 		requestSuccess, response = pcall(net.request, {
 			url = request.url,
 			method = request.method or "GET",
@@ -177,6 +180,7 @@ function Http.request(request: HttpRequest): HttpResult
 		if requestSuccess then
 			-- Request succeeded - check status code
 			if response.ok then
+				Logging.verbose(`Response: {response.statusCode} {response.statusMessage} ({Logging.formatSize(#response.body)})`)
 				return {
 					success = true,
 					response = response,
@@ -186,6 +190,15 @@ function Http.request(request: HttpRequest): HttpResult
 			-- Non-2xx status code
 			lastStatusCode = response.statusCode
 			lastError = `HTTP {response.statusCode}: {response.statusMessage}`
+
+			-- Log detailed error for non-success responses
+			if response.statusCode == 403 then
+				Logging.verbose(`Access denied for {request.url}`)
+			elseif response.statusCode == 404 then
+				Logging.verbose(`Not found: {request.url}`)
+			else
+				Logging.verbose(lastError)
+			end
 
 			-- Don't retry client errors (4xx)
 			if not isRetryableError(response.statusCode) then
@@ -198,11 +211,13 @@ function Http.request(request: HttpRequest): HttpResult
 		else
 			-- Network error occurred
 			lastError = `Network error: {response}`
+			Logging.verbose(lastError)
 		end
 
 		-- Retry with exponential backoff (except on last attempt)
 		if attempt < MAX_RETRY_ATTEMPTS - 1 then
 			local delayMs: number = calculateRetryDelay(attempt)
+			Logging.verbose(`Retrying in {Logging.formatDuration(delayMs)}... (attempt {attempt + 2}/{MAX_RETRY_ATTEMPTS})`)
 			task.wait(delayMs / 1000)
 		end
 	end
