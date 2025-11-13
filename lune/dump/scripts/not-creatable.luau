@@ -1,26 +1,50 @@
 --!strict
 
 --[=[
-	@class NotCreatable
+	@class NotCreatableAnalyzer
 
-	Identifies classes marked NotCreatable.
+	Identifies classes marked NotCreatable that aren't services or common abstractions.
 
-	Filters out Services, Base classes, and common abstract patterns.
-	These classes cannot be instantiated via Instance.new() but may appear
-	in serialized data.
+	NotCreatable classes cannot be instantiated via Instance.new() but may:
+	- Be created automatically by the engine
+	- Appear in serialized data from Studio or engine operations
+	- Exist as singletons or system-managed instances
 
-	Output: Array of classes with name, isService flag, and tags.
+	Filters out common patterns to focus on interesting NotCreatable classes:
+	- Services (marked with Service tag)
+	- Base classes (names containing "Base")
+	- Page classes (names containing "Page")
+	- Plugin classes (names containing "Plugin")
+	- Setting classes (names containing "Setting")
+
+	Output: Array of classes sorted by name with service flag and tag list.
+
+	Usage:
+	  lune run lune/dump/scripts/not-creatable.luau [version-hash]
 ]=]
 
--- Imports
-local Process = require("@lune/process")
-local lib = require("../lib")
+-- ===== Imports =====
 
--- Type Definitions
+local Process = require("@lune/process")
+local Lib = require("../lib")
+
+-- ===== Constants =====
+
+-- Output filename base (without extension)
+local OUTPUT_NAME = "not-creatable"
+
+-- Class name patterns to exclude (common abstract/base patterns)
+local EXCLUSION_PATTERNS = { "Base", "Page", "Plugin", "Setting" }
+
+-- ===== Type Definitions =====
 
 --[=[
 	@class ClassInfo
 	NotCreatable class information.
+
+	@field name string -- Class name
+	@field isService boolean -- True if class has Service tag
+	@field tags {string} -- Sorted array of tag names
 ]=]
 type ClassInfo = {
 	name: string,
@@ -28,29 +52,29 @@ type ClassInfo = {
 	tags: { string },
 }
 
--- Module State
+-- ===== Module Table =====
 
--- Exclusion patterns: common abstract/base class names to ignore
-local EXCLUDE_PATTERNS = { "Base", "Page", "Plugin", "Setting" }
+local NotCreatableAnalyzer = {}
 
--- Module Table
-local NotCreatable = {}
-
--- Private Helpers
+-- ===== Private Helpers =====
 
 --[=[
 	@private
-	Checks if class name contains an exclusion pattern.
+	Checks if class name matches any exclusion pattern.
 
-	@param name -- Class name
-	@return boolean -- True if excluded
+	Filters out common abstract/base class naming conventions to focus
+	on interesting NotCreatable classes.
+
+	@param className string -- Class name to check
+	@return boolean -- True if name contains exclusion pattern
 ]=]
-local function matchesExclusionPattern(name: string): boolean
-	for _, pattern in EXCLUDE_PATTERNS do
-		if string.find(name, pattern) then
+local function matchesExclusionPattern(className: string): boolean
+	for _, pattern in EXCLUSION_PATTERNS do
+		if string.find(className, pattern) then
 			return true
 		end
 	end
+
 	return false
 end
 
@@ -58,91 +82,119 @@ end
 	@private
 	Checks if class should be included in output.
 
-	@param tags -- Normalized class tags
-	@param name -- Class name
+	Includes classes that are:
+	- Marked NotCreatable
+	- NOT marked Service
+	- NOT matching exclusion patterns
+
+	@param normalizedTags table -- Normalized tag dictionary
+	@param className string -- Class name
 	@return boolean -- True if should be included
 ]=]
-local function shouldInclude(tags: { [string]: any }, name: string): boolean
-	return tags.NotCreatable and not tags.Service and not matchesExclusionPattern(name)
+local function shouldIncludeClass(normalizedTags: { [string]: any }, className: string): boolean
+	return normalizedTags.NotCreatable
+		and not normalizedTags.Service
+		and not matchesExclusionPattern(className)
 end
 
 --[=[
 	@private
-	Extracts tag names from normalized tag map.
+	Extracts sorted array of tag names from normalized tag dictionary.
 
-	@param tags -- Normalized tag map
-	@return { string } -- Sorted array of tag names
+	Filters to boolean tags (value = true) and returns alphabetically
+	sorted list for consistent output.
+
+	@param normalizedTags table -- Normalized tag dictionary
+	@return {string} -- Sorted array of tag names
 ]=]
-local function extractTagNames(tags: { [string]: any }): { string }
-	local result: { string }
+local function extractTagNames(normalizedTags: { [string]: any }): { string }
+	local tagNames: { string } = {}
 
-	result = {}
-	for tag, value in tags do
-		if value == true then
-			table.insert(result, tag)
+	for tagName, tagValue in normalizedTags do
+		if tagValue == true then
+			table.insert(tagNames, tagName)
 		end
 	end
-	table.sort(result)
-	return result
+
+	table.sort(tagNames)
+
+	return tagNames
 end
 
 --[=[
 	@private
-	Collects NotCreatable classes from API dump.
+	Sorts classes alphabetically by name.
 
-	@param api -- API dump
-	@return { ClassInfo } -- Class info list sorted by name
+	@param a ClassInfo -- First class to compare
+	@param b ClassInfo -- Second class to compare
+	@return boolean -- True if a should sort before b
 ]=]
-local function collectClasses(api: lib.ApiDump): { ClassInfo }
-	local result: { ClassInfo }
-	local ok: boolean
-	local tags: any
+local function sortClasses(a: ClassInfo, b: ClassInfo): boolean
+	return a.name < b.name
+end
 
-	result = {}
+--[=[
+	@private
+	Collects NotCreatable classes from API dump with error isolation.
 
-	for _, class in api.Classes do
-		ok, tags = pcall(lib.tags, class.Tags)
-		if not ok then
-			lib.warn(`Error processing {class.Name}: {tags}`)
+	Traverses all classes, filters based on tags and naming patterns,
+	and builds structured output. Individual errors are logged but
+	don't abort analysis.
+
+	@param apiDump Lib.ApiDump -- API dump to analyze
+	@return {ClassInfo} -- NotCreatable classes sorted by name
+	@side-effect Logs warnings for processing errors
+]=]
+local function collectNotCreatableClasses(apiDump: Lib.ApiDump): { ClassInfo }
+	local notCreatableClasses: { ClassInfo } = {}
+
+	for _, class in apiDump.Classes do
+		local tagsSuccess, normalizedTags = pcall(Lib.tags, class.Tags)
+
+		if not tagsSuccess then
+			Lib.warn(`Error processing tags for {class.Name}: {normalizedTags}`)
 			continue
 		end
 
-		if shouldInclude(tags, class.Name) then
-			table.insert(result, {
+		if shouldIncludeClass(normalizedTags, class.Name) then
+			local classInfo: ClassInfo = {
 				name = class.Name,
-				isService = tags.Service == true,
-				tags = extractTagNames(tags),
-			})
+				isService = normalizedTags.Service == true,
+				tags = extractTagNames(normalizedTags),
+			}
+
+			table.insert(notCreatableClasses, classInfo)
 		end
 	end
 
 	-- Sort for deterministic output
-	table.sort(result, function(a, b)
-		return a.name < b.name
-	end)
+	table.sort(notCreatableClasses, sortClasses)
 
-	return result
+	return notCreatableClasses
 end
 
--- Public API
+-- ===== Public API =====
 
 --[=[
-	Runs NotCreatable analysis on API dump.
+	Runs NotCreatable analysis on Roblox API dump.
 
-	@param hash -- Optional version hash
-	@error Throws if analysis fails
+	Fetches API dump, identifies interesting NotCreatable classes,
+	and generates JSON output with class information and tags.
+
+	@param versionHash string? -- Optional specific API dump version
+	@error Throws if API fetch fails or analysis encounters fatal error
+	@side-effect Writes JSON file to output directory, logs to stdout
 ]=]
-function NotCreatable.run(hash: string?)
-	local api: lib.ApiDump
-	local classes: { ClassInfo }
+function NotCreatableAnalyzer.run(versionHash: string?)
+	local apiDump = Lib.fetch(versionHash)
+	local notCreatableClasses = collectNotCreatableClasses(apiDump)
 
-	api = lib.fetch(hash)
-	classes = collectClasses(api)
+	local output = Lib.output(versionHash, notCreatableClasses)
+	Lib.json(OUTPUT_NAME, output)
 
-	lib.json("not-creatable", lib.output(hash, classes))
-
-	lib.success(#classes, "NotCreatable classes")
+	Lib.success(#notCreatableClasses, "NotCreatable classes")
 end
 
--- Entry Point
-lib.runCli(NotCreatable.run, Process.args)
+-- ===== Entry Point =====
+
+Lib.runCli(NotCreatableAnalyzer.run, Process.args)

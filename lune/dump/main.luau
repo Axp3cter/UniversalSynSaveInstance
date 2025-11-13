@@ -3,85 +3,157 @@
 --[=[
 	@class Runner
 
-	Executes all dumper scripts and reports results.
+	Orchestrates execution of all API dump analysis scripts.
 
-	Discovers .luau files in dumpers/ directory and runs them sequentially.
-	Reports success/failure counts and total execution time.
+	Provides automated batch processing of dumper scripts with:
+	- Automatic script discovery in scripts/ directory
+	- Sequential execution with progress tracking
+	- Individual script error isolation (failures don't abort batch)
+	- Comprehensive execution summary with timing statistics
+	- Consistent CLI entrypoint with version hash support
 
 	Usage:
-	  lune run lune/dump/init.luau [version-hash]
+	  lune run lune/dump/main.luau [version-hash]
 
 	Exit codes:
 	  0 - All dumpers succeeded
 	  1 - One or more dumpers failed or no scripts found
+
+	The runner discovers all .luau files in lune/dump/scripts/ and executes
+	them in sorted order, passing the optional version hash to each script.
 ]=]
 
--- Imports
+-- ===== Imports =====
+
 local fs = require("@lune/fs")
 local Process = require("@lune/process")
 local stdio = require("@lune/stdio")
-local lib = require("./lib")
+local Lib = require("./lib")
 
--- Type Definitions
+-- ===== Constants =====
+
+-- Directory containing dumper scripts to execute
+local SCRIPTS_DIRECTORY = "lune/dump/scripts"
+
+-- File extension filter for script discovery
+local SCRIPT_EXTENSION = ".luau"
+
+-- Visual separator width for headers and summaries
+local SEPARATOR_WIDTH = 70
+
+-- Timestamp format for execution header
+local TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+-- ===== Type Definitions =====
 
 --[=[
-	@class Result
-	Execution results tracking success and failure counts.
+	@class ExecutionResult
+	Tracks success and failure counts across all dumper executions.
+
+	@field succeeded number -- Count of scripts that completed successfully
+	@field failed number -- Count of scripts that failed or exited non-zero
 ]=]
-type Result = {
+type ExecutionResult = {
 	succeeded: number,
 	failed: number,
 }
 
--- Module Table
+--[=[
+	@class ScriptExecution
+	Configuration for executing a single dumper script.
+
+	@field scriptPath string -- Absolute path to script file
+	@field versionHash string? -- Optional API dump version hash to pass
+]=]
+type ScriptExecution = {
+	scriptPath: string,
+	versionHash: string?,
+}
+
+-- ===== Module Table =====
+
 local Runner = {}
 
--- Private Helpers
+-- ===== Private Helpers =====
 
 --[=[
 	@private
-	Discovers dumper scripts in the dumpers directory.
+	Checks if filename has the script extension.
 
-	@return { string } -- Sorted list of script filenames
-	@error Throws if directory read fails
+	@param filename string -- Filename to check
+	@return boolean -- True if filename ends with SCRIPT_EXTENSION
 ]=]
-local function discoverScripts(): { string }
-	local ok: boolean
-	local entries: any
-	local files: { string }
-
-	ok, entries = pcall(fs.readDir, "lune/dump/scripts")
-	if not ok then
-		error("Failed to read dumpers directory")
-	end
-
-	files = {}
-	for _, entry in entries do
-		if string.match(entry, "%.luau$") then
-			table.insert(files, entry)
-		end
-	end
-
-	table.sort(files)
-	return files
+local function isScriptFile(filename: string): boolean
+	return string.match(filename, `{SCRIPT_EXTENSION}$`) ~= nil
 end
 
 --[=[
 	@private
-	Prints formatted header with separator.
+	Removes file extension from filename.
 
-	@param text -- Header text
+	@param filename string -- Filename with extension
+	@return string -- Filename without extension
 ]=]
-local function printHeader(text: string)
-	local separator: string
+local function removeExtension(filename: string): string
+	return string.gsub(filename, `{SCRIPT_EXTENSION}$`, "")
+end
 
-	separator = string.rep("=", 70)
+--[=[
+	@private
+	Discovers dumper scripts in the scripts directory.
+
+	Filters for .luau files and returns them in sorted order for
+	deterministic execution sequence.
+
+	@return {string} -- Sorted array of script filenames
+	@error Throws if directory read fails
+]=]
+local function discoverScripts(): { string }
+	local readSuccess, directoryEntries = pcall(fs.readDir, SCRIPTS_DIRECTORY)
+
+	if not readSuccess then
+		error(`Failed to read scripts directory {SCRIPTS_DIRECTORY}: {directoryEntries}`)
+	end
+
+	local scriptFiles: { string } = {}
+
+	for _, entry in directoryEntries do
+		if isScriptFile(entry) then
+			table.insert(scriptFiles, entry)
+		end
+	end
+
+	-- Sort for deterministic execution order
+	table.sort(scriptFiles)
+
+	return scriptFiles
+end
+
+--[=[
+	@private
+	Creates visual separator line for headers.
+
+	@return string -- Separator line of SEPARATOR_WIDTH characters
+]=]
+local function createSeparator(): string
+	return string.rep("=", SEPARATOR_WIDTH)
+end
+
+--[=[
+	@private
+	Prints formatted section header with styling.
+
+	@param headerText string -- Text to display in header
+	@side-effect Prints styled header to stdout
+]=]
+local function printHeader(headerText: string)
+	local separator = createSeparator()
 
 	stdio.write(stdio.style("bold"))
 	stdio.write(stdio.color("cyan"))
 	print("")
 	print(separator)
-	print(text)
+	print(headerText)
 	print(separator)
 	stdio.write(stdio.style("reset"))
 	stdio.write(stdio.color("reset"))
@@ -90,18 +162,32 @@ end
 
 --[=[
 	@private
+	Determines summary color based on execution results.
+
+	@param result ExecutionResult -- Execution statistics
+	@return string -- Color name for stdio.color()
+]=]
+local function getSummaryColor(result: ExecutionResult): string
+	return if result.failed == 0 then "green" else "yellow"
+end
+
+--[=[
+	@private
 	Prints execution summary with statistics.
 
-	@param result -- Execution results
-	@param total -- Total scripts run
-	@param elapsed -- Elapsed time in seconds
+	Displays success/failure counts, total scripts, and elapsed time.
+	Uses color coding to indicate overall status (green = all passed,
+	yellow/red = some failed).
+
+	@param result ExecutionResult -- Execution statistics
+	@param totalScripts number -- Total number of scripts executed
+	@param elapsedSeconds number -- Total execution time in seconds
+	@side-effect Prints styled summary to stdout
 ]=]
-local function printSummary(result: Result, total: number, elapsed: number)
-	local separator: string
-	local color: string
+local function printSummary(result: ExecutionResult, totalScripts: number, elapsedSeconds: number)
+	local separator = createSeparator()
 
-	separator = string.rep("=", 70)
-
+	-- Print header
 	stdio.write(stdio.style("bold"))
 	stdio.write(stdio.color("cyan"))
 	print("")
@@ -110,56 +196,63 @@ local function printSummary(result: Result, total: number, elapsed: number)
 	print(separator)
 	stdio.write(stdio.style("reset"))
 
-	color = if result.failed == 0 then "green" else "yellow"
-	stdio.write(stdio.color(color))
-	print(`  Succeeded: {result.succeeded}/{total}`)
+	-- Print success count with appropriate color
+	local successColor = getSummaryColor(result)
+	stdio.write(stdio.color(successColor))
+	print(`  Succeeded: {result.succeeded}/{totalScripts}`)
 	stdio.write(stdio.color("reset"))
 
+	-- Print failure count if any failures occurred
 	if result.failed > 0 then
 		stdio.write(stdio.color("red"))
-		print(`  Failed: {result.failed}/{total}`)
+		print(`  Failed: {result.failed}/{totalScripts}`)
 		stdio.write(stdio.color("reset"))
 	end
 
+	-- Print execution time
 	stdio.write(stdio.color("blue"))
-	print(`  Time: {string.format("%.2f", elapsed)}s`)
+	print(`  Time: {string.format("%.2f", elapsedSeconds)}s`)
 	stdio.write(stdio.color("reset"))
 end
 
 --[=[
 	@private
-	Executes a single dumper script.
+	Executes a single dumper script as a subprocess.
 
-	@param file -- Script filename
-	@param hash -- Optional version hash
-	@return boolean -- True if script succeeded
+	Spawns lune process with inherited stdio for real-time output.
+	Returns success status based on exit code.
+
+	@param execution ScriptExecution -- Script execution configuration
+	@return boolean -- True if script exited with code 0
+	@side-effect Executes subprocess, prints to stdout/stderr
 ]=]
-local function executeScript(file: string, hash: string?): boolean
-	local args: { string }
-	local path: string
-	local ok: boolean
-	local result: any
+local function executeScript(execution: ScriptExecution): boolean
+	local arguments: { string } = { "run", execution.scriptPath }
 
-	args = if hash then { hash } else {}
-	path = `lune/dump/scripts/{file}`
+	-- Append version hash if provided
+	if execution.versionHash then
+		table.insert(arguments, execution.versionHash)
+	end
 
-	ok, result = pcall(Process.exec, "lune", { "run", path, table.unpack(args) }, {
+	local spawnSuccess, processResult = pcall(Process.exec, "lune", arguments, {
 		stdio = "inherit",
 	})
 
-	if not ok then
+	-- Handle process spawn failure
+	if not spawnSuccess then
 		stdio.write(stdio.color("red"))
 		stdio.write("x ")
 		stdio.write(stdio.color("reset"))
-		stdio.ewrite(`Execution failed: {result}\n`)
+		stdio.ewrite(`Failed to execute script: {processResult}\n`)
 		return false
 	end
 
-	if not result.ok then
+	-- Handle non-zero exit code
+	if not processResult.ok then
 		stdio.write(stdio.color("red"))
 		stdio.write("x ")
 		stdio.write(stdio.color("reset"))
-		stdio.ewrite(`Exit code {result.code}\n`)
+		stdio.ewrite(`Script exited with code {processResult.code}\n`)
 		return false
 	end
 
@@ -170,80 +263,114 @@ end
 	@private
 	Prints script name with progress indicator.
 
-	@param index -- Current script index (1-based)
-	@param total -- Total number of scripts
-	@param file -- Script filename
-]=]
-local function printScriptName(index: number, total: number, file: string)
-	local scriptName: string
+	Formats output as "[index/total] scriptName" in bold.
 
-	scriptName = string.gsub(file, "%.luau$", "")
+	@param scriptIndex number -- Current script index (1-based)
+	@param totalScripts number -- Total number of scripts
+	@param scriptFilename string -- Script filename with extension
+	@side-effect Prints styled script name to stdout
+]=]
+local function printScriptProgress(scriptIndex: number, totalScripts: number, scriptFilename: string)
+	local scriptName = removeExtension(scriptFilename)
 
 	stdio.write(stdio.style("bold"))
-	print(`[{index}/{total}] {scriptName}`)
+	print(`[{scriptIndex}/{totalScripts}] {scriptName}`)
 	stdio.write(stdio.style("reset"))
 end
 
--- Public API
+--[=[
+	@private
+	Prints version hash information if provided.
+
+	@param versionHash string? -- Optional version hash
+	@side-effect Prints version info to stdout if hash provided
+]=]
+local function printVersionInfo(versionHash: string?)
+	if not versionHash then
+		return
+	end
+
+	stdio.write(stdio.color("blue"))
+	stdio.write("i ")
+	stdio.write(stdio.color("reset"))
+	print(`Version: {versionHash}`)
+	print("")
+end
 
 --[=[
-	Runs all dumper scripts sequentially.
+	@private
+	Initializes execution result tracker.
 
-	@param hash -- Optional version hash to pass to dumpers
-	@error Exits with code 1 if any dumper fails or no scripts found
+	@return ExecutionResult -- New result tracker with zero counts
 ]=]
-function Runner.run(hash: string?)
-	local files: { string }
-	local result: Result
-	local startTime: number
-	local elapsed: number
-
-	files = discoverScripts()
-
-	if #files == 0 then
-		stdio.write(stdio.color("yellow"))
-		stdio.write("! ")
-		stdio.write(stdio.color("reset"))
-		print("No dumper scripts found")
-		Process.exit(1)
-	end
-
-	printHeader(`API Dump Analysis  •  {os.date("%Y-%m-%d %H:%M:%S")}`)
-
-	if hash then
-		stdio.write(stdio.color("blue"))
-		stdio.write("i ")
-		stdio.write(stdio.color("reset"))
-		print(`Version: {hash}`)
-		print("")
-	end
-
-	result = {
+local function createExecutionResult(): ExecutionResult
+	return {
 		succeeded = 0,
 		failed = 0,
 	}
+end
 
-	startTime = os.time()
+-- ===== Public API =====
 
-	for index, file in files do
-		printScriptName(index, #files, file)
+--[=[
+	Runs all dumper scripts sequentially with progress tracking.
 
-		if executeScript(file, hash) then
-			result.succeeded += 1
+	Discovers scripts in SCRIPTS_DIRECTORY, executes each in sorted order,
+	and reports comprehensive statistics. Individual script failures are
+	isolated and don't abort the batch.
+
+	@param versionHash string? -- Optional API dump version hash to pass to scripts
+	@error Exits process with code 1 if any script fails or no scripts found
+	@side-effect Executes subprocesses, prints to stdout/stderr, may exit process
+]=]
+function Runner.run(versionHash: string?)
+	local scriptFiles = discoverScripts()
+
+	-- Guard against empty scripts directory
+	if #scriptFiles == 0 then
+		stdio.write(stdio.color("yellow"))
+		stdio.write("! ")
+		stdio.write(stdio.color("reset"))
+		print("No dumper scripts found in scripts directory")
+		Process.exit(1)
+	end
+
+	local currentTime = os.date(TIMESTAMP_FORMAT)
+	printHeader(`API Dump Analysis  •  {currentTime}`)
+	printVersionInfo(versionHash)
+
+	local executionResult = createExecutionResult()
+	local startTime = os.time()
+
+	-- Execute each script and track results
+	for scriptIndex, scriptFilename in scriptFiles do
+		printScriptProgress(scriptIndex, #scriptFiles, scriptFilename)
+
+		local execution: ScriptExecution = {
+			scriptPath = `{SCRIPTS_DIRECTORY}/{scriptFilename}`,
+			versionHash = versionHash,
+		}
+
+		local scriptSucceeded = executeScript(execution)
+
+		if scriptSucceeded then
+			executionResult.succeeded += 1
 		else
-			result.failed += 1
+			executionResult.failed += 1
 		end
 
 		print("")
 	end
 
-	elapsed = os.time() - startTime
-	printSummary(result, #files, elapsed)
+	local elapsedSeconds = os.time() - startTime
+	printSummary(executionResult, #scriptFiles, elapsedSeconds)
 
-	if result.failed > 0 then
+	-- Exit with error code if any failures occurred
+	if executionResult.failed > 0 then
 		Process.exit(1)
 	end
 end
 
--- Entry Point
-lib.runCli(Runner.run, Process.args)
+-- ===== Entry Point =====
+
+Lib.runCli(Runner.run, Process.args)
