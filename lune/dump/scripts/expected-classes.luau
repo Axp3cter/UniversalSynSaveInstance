@@ -1,5 +1,15 @@
 --!strict
 
+--[=[
+	@class ExpectedClasses
+
+	Identifies properties with specific class type expectations.
+
+	Finds serializable properties typed to specific Instance subclasses
+	(not generic Instance), indicating typed references that may require
+	validation or special handling during serialization.
+]=]
+
 local Process = require("@lune/process")
 local Lib = require("../lib")
 
@@ -9,9 +19,14 @@ type PropertyInfo = {
 	expected: string,
 }
 
-local ExpectedClassesAnalyzer = {}
+local ExpectedClasses = {}
 
-function ExpectedClassesAnalyzer.run(hash: string?)
+--[=[
+	Finds properties expecting specific class types.
+
+	@param hash string? -- Optional version hash (latest if nil)
+]=]
+function ExpectedClasses.run(hash: string?)
 	local api = Lib.fetch(hash)
 	local props = {}
 
@@ -43,4 +58,4 @@ function ExpectedClassesAnalyzer.run(hash: string?)
 	Lib.success(#props, "class-typed properties")
 end
 
-Lib.runCli(ExpectedClassesAnalyzer.run, Process.args)
+Lib.runCli(ExpectedClasses.run, Process.args)

@@ -1,5 +1,15 @@
 --!strict
 
+--[=[
+	@class NotCreatable
+
+	Identifies NotCreatable classes excluding common patterns.
+
+	Finds classes marked NotCreatable that aren't Services or common
+	base types (Base, Page, Plugin, Setting), representing classes
+	only obtainable through engine APIs or special constructors.
+]=]
+
 local Process = require("@lune/process")
 local Lib = require("../lib")
 
@@ -9,7 +19,7 @@ type ClassInfo = {
 	tags: { string },
 }
 
-local NotCreatableAnalyzer = {}
+local NotCreatable = {}
 
 local EXCLUDE_PATTERNS = { "Base", "Page", "Plugin", "Setting" }
 
@@ -22,7 +32,12 @@ local function matchesPattern(name: string): boolean
 	return false
 end
 
-function NotCreatableAnalyzer.run(hash: string?)
+--[=[
+	Finds NotCreatable classes excluding common patterns.
+
+	@param hash string? -- Optional version hash (latest if nil)
+]=]
+function NotCreatable.run(hash: string?)
 	local api = Lib.fetch(hash)
 	local results = {}
 
@@ -54,4 +69,4 @@ function NotCreatableAnalyzer.run(hash: string?)
 	Lib.success(#results, "NotCreatable classes")
 end
 
-Lib.runCli(NotCreatableAnalyzer.run, Process.args)
+Lib.runCli(NotCreatable.run, Process.args)

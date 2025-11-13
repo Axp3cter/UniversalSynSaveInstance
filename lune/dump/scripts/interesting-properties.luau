@@ -1,5 +1,15 @@
 --!strict
 
+--[=[
+	@class InterestingProperties
+
+	Detects properties with unusual serialization characteristics.
+
+	Identifies asymmetric serialization (CanLoad≠CanSave), deprecated
+	but saveable properties, and NotCreatable classes with non-placeholder
+	defaults that reveal instance state otherwise inaccessible.
+]=]
+
 local Process = require("@lune/process")
 local Lib = require("../lib")
 
@@ -22,7 +32,7 @@ type NotCreatableDefault = {
 
 type Property = AsymmetricProperty | NotCreatableDefault
 
-local InterestingPropertiesAnalyzer = {}
+local InterestingProperties = {}
 
 local function isPlaceholder(value: string?): boolean
 	if not value then
@@ -31,7 +41,12 @@ local function isPlaceholder(value: string?): boolean
 	return string.find(value, "__api_dump_", 1, true) ~= nil
 end
 
-function InterestingPropertiesAnalyzer.run(hash: string?)
+--[=[
+	Analyzes properties for asymmetric serialization and defaults.
+
+	@param hash string? -- Optional version hash (latest if nil)
+]=]
+function InterestingProperties.run(hash: string?)
 	local api = Lib.fetch(hash)
 	local classProps = {}
 	local results = {}
@@ -109,4 +124,4 @@ function InterestingPropertiesAnalyzer.run(hash: string?)
 	Lib.success(#results, "interesting properties", `{breakdown.asymmetric} asymmetric, {breakdown.notCreatableDefault} NotCreatable defaults`)
 end
 
-Lib.runCli(InterestingPropertiesAnalyzer.run, Process.args)
+Lib.runCli(InterestingProperties.run, Process.args)

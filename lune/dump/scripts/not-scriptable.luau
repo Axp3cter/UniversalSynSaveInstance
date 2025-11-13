@@ -1,5 +1,16 @@
 --!strict
 
+--[=[
+	@class NotScriptable
+
+	Analyzes NotScriptable properties and proxy patterns.
+
+	Identifies properties hidden from scripts but serializable, properties
+	with serialization-related names (xml, internal, serial, replica),
+	and proxy properties where scriptable enum properties mirror
+	NotScriptable ones for backward compatibility.
+]=]
+
 local Process = require("@lune/process")
 local Lib = require("../lib")
 
@@ -29,7 +40,7 @@ type ProxyProperty = {
 
 type Property = NotScriptableProperty | SerializationProperty | ProxyProperty
 
-local NotScriptableAnalyzer = {}
+local NotScriptable = {}
 
 local PATTERNS = { "xml", "internal", "serial", "replica" }
 
@@ -43,7 +54,12 @@ local function hasPattern(name: string): boolean
 	return false
 end
 
-function NotScriptableAnalyzer.run(hash: string?)
+--[=[
+	Analyzes NotScriptable and serialization-named properties.
+
+	@param hash string? -- Optional version hash (latest if nil)
+]=]
+function NotScriptable.run(hash: string?)
 	local api = Lib.fetch(hash)
 	local results = {}
 	local notScriptableCount = 0
@@ -132,4 +148,4 @@ function NotScriptableAnalyzer.run(hash: string?)
 	Lib.success(#results, "items", `{notScriptableCount} NotScriptable, {proxyCount} proxies, {serializationNamedCount} serialization-named`)
 end
 
-Lib.runCli(NotScriptableAnalyzer.run, Process.args)
+Lib.runCli(NotScriptable.run, Process.args)

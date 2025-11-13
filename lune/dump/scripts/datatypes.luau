@@ -1,5 +1,15 @@
 --!strict
 
+--[=[
+	@class Datatypes
+
+	Analyzes data type serialization capabilities from API dump.
+
+	Identifies primitive and data types with their save/load capabilities,
+	flagging asymmetric serialization where descriptors may be needed.
+	Excludes Enum and Class categories to focus on value types.
+]=]
+
 local Process = require("@lune/process")
 local Lib = require("../lib")
 
@@ -10,9 +20,14 @@ type TypeInfo = {
 	hasDescriptor: boolean,
 }
 
-local DatatypesAnalyzer = {}
+local Datatypes = {}
 
-function DatatypesAnalyzer.run(hash: string?)
+--[=[
+	Analyzes all data types and their serialization flags.
+
+	@param hash string? -- Optional version hash (latest if nil)
+]=]
+function Datatypes.run(hash: string?)
 	local api = Lib.fetch(hash)
 
 	local types = {}
@@ -69,4 +84,4 @@ function DatatypesAnalyzer.run(hash: string?)
 	Lib.success(#results, "data types")
 end
 
-Lib.runCli(DatatypesAnalyzer.run, Process.args)
+Lib.runCli(Datatypes.run, Process.args)

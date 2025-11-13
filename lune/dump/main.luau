@@ -1,5 +1,15 @@
 --!strict
 
+--[=[
+	@class Main
+
+	Orchestrates execution of all API dump analysis scripts.
+
+	Discovery scans `lune/dump/scripts/` for .luau files and executes
+	each dumper script sequentially with progress reporting and error
+	handling. Generates formatted output with execution summary.
+]=]
+
 local fs = require("@lune/fs")
 local Process = require("@lune/process")
 local stdio = require("@lune/stdio")
@@ -8,7 +18,7 @@ local Lib = require("./lib")
 local SCRIPTS_DIR = "lune/dump/scripts"
 local SEPARATOR = string.rep("=", 70)
 
-local Runner = {}
+local Main = {}
 
 -- Script discovery and validation
 
@@ -97,7 +107,13 @@ end
 
 -- Main runner
 
-function Runner.run(hash: string?)
+--[=[
+	Runs all dumper scripts with formatted output.
+
+	@param hash string? -- Optional version hash (latest if nil)
+	@error Exits with code 1 if any script fails
+]=]
+function Main.run(hash: string?)
 	local scripts = discoverScripts()
 
 	if #scripts == 0 then
@@ -138,4 +154,4 @@ function Runner.run(hash: string?)
 	end
 end
 
-Lib.runCli(Runner.run, Process.args)
+Lib.runCli(Main.run, Process.args)

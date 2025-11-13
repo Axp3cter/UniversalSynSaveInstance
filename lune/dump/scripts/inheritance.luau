@@ -1,5 +1,15 @@
 --!strict
 
+--[=[
+	@class Inheritance
+
+	Identifies classes outside the Instance hierarchy.
+
+	Finds classes not inheriting from Instance, representing standalone
+	types like Enums, RaycastParams, or other non-Instance objects that
+	require different serialization strategies.
+]=]
+
 local Process = require("@lune/process")
 local Lib = require("../lib")
 
@@ -8,9 +18,14 @@ type ClassInfo = {
 	superclass: string?,
 }
 
-local InheritanceAnalyzer = {}
+local Inheritance = {}
 
-function InheritanceAnalyzer.run(hash: string?)
+--[=[
+	Finds classes not inheriting from Instance.
+
+	@param hash string? -- Optional version hash (latest if nil)
+]=]
+function Inheritance.run(hash: string?)
 	local api = Lib.fetch(hash)
 	local map = Lib.classes(api.Classes)
 	local results = {}
@@ -32,4 +47,4 @@ function InheritanceAnalyzer.run(hash: string?)
 	Lib.success(#results, "non-Instance classes")
 end
 
-Lib.runCli(InheritanceAnalyzer.run, Process.args)
+Lib.runCli(Inheritance.run, Process.args)
