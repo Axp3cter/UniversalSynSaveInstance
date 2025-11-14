@@ -3,104 +3,78 @@
 --[=[
 	@class Inheritance
 
-	Identifies classes outside Instance hierarchy.
+	Identifies classes outside the Instance hierarchy.
 
-	Finds special engine types that do not inherit from Instance.
-	These are typically low-level engine classes or abstract base types.
-
-	Output: Array of classes with name and optional superclass.
+	Finds classes not inheriting from Instance, representing standalone
+	types like Enums, RaycastParams, or other non-Instance objects that
+	require different serialization strategies.
 ]=]
 
--- Imports
 local Process = require("@lune/process")
-local lib = require("../lib")
+local Lib = require("../lib")
 
--- Type Definitions
+-- Constants
 
---[=[
-	@class ClassInfo
-	Information about non-Instance class.
-]=]
+local BASE_INSTANCE_CLASS = "Instance"
+
+-- Types
+
 type ClassInfo = {
 	name: string,
 	superclass: string?,
 }
 
--- Module Table
-local Inheritance = {}
-
--- Private Helpers
+-- Helpers
 
 --[=[
-	@private
-	Checks if class inherits from Instance.
+	Compares two ClassInfo records for sorting.
 
-	@param name -- Class name
-	@param map -- Class lookup map
-	@return boolean -- True if inherits from Instance
+	@param a ClassInfo -- First class
+	@param b ClassInfo -- Second class
+	@return boolean -- True if a should come before b
 ]=]
-local function inheritsFromInstance(name: string, map: lib.ClassMap): boolean
-	return lib.inherits(name, "Instance", map)
+local function compareClasses(a: ClassInfo, b: ClassInfo): boolean
+	return a.name < b.name
 end
 
+local Inheritance = {}
+
 --[=[
-	@private
-	Collects non-Instance classes from API dump.
+	Finds classes not inheriting from Instance.
 
-	@param api -- API dump
-	@return { ClassInfo } -- Non-Instance classes sorted by name
+	Identifies standalone types like Enums, RaycastParams that
+	require different serialization strategies.
+
+	@param hash string? -- Optional version hash (latest if nil)
 ]=]
-local function collectClasses(api: lib.ApiDump): { ClassInfo }
-	local map: lib.ClassMap
-	local result: { ClassInfo }
-	local ok: boolean
-	local doesInherit: any
+function Inheritance.run(hash: string?): ()
+	local api = Lib.fetch(hash)
 
-	map = lib.classes(api.Classes)
-	result = {}
+	-- Processing
+
+	local classMap = Lib.classes(api.Classes)
+	local nonInstanceClasses: { ClassInfo } = {}
 
 	for _, class in api.Classes do
-		ok, doesInherit = pcall(inheritsFromInstance, class.Name, map)
-		if not ok then
-			lib.warn(`Error checking {class.Name}: {doesInherit}`)
-			continue
-		end
+		local inheritsFromInstance = Lib.inherits(class.Name, BASE_INSTANCE_CLASS, classMap)
 
-		if not doesInherit then
-			table.insert(result, {
+		if not inheritsFromInstance then
+			local classInfo: ClassInfo = {
 				name = class.Name,
 				superclass = class.Superclass,
-			})
+			}
+			table.insert(nonInstanceClasses, classInfo)
 		end
 	end
 
-	-- Sort for deterministic output
-	table.sort(result, function(a, b)
-		return a.name < b.name
-	end)
+	-- Sorting
 
-	return result
+	table.sort(nonInstanceClasses, compareClasses)
+
+	-- Output
+
+	Lib.json("inheritance", Lib.output(hash, nonInstanceClasses))
+	Lib.success(#nonInstanceClasses, "non-Instance classes")
 end
 
--- Public API
-
---[=[
-	Runs inheritance analysis on API dump.
-
-	@param hash -- Optional version hash
-	@error Throws if analysis fails
-]=]
-function Inheritance.run(hash: string?)
-	local api: lib.ApiDump
-	local classes: { ClassInfo }
-
-	api = lib.fetch(hash)
-	classes = collectClasses(api)
-
-	lib.json("inheritance", lib.output(hash, classes))
-
-	lib.success(#classes, "non-Instance classes")
-end
-
--- Entry Point
-lib.runCli(Inheritance.run, Process.args)
+Lib.runCli(Inheritance.run, Process.args)

@@ -1,123 +1,105 @@
 --!strict
 
 --[=[
-	@class Runner
+	@class Main
 
-	Executes all dumper scripts and reports results.
+	Orchestrates execution of all API dump analysis scripts.
 
-	Discovers .luau files in dumpers/ directory and runs them sequentially.
-	Reports success/failure counts and total execution time.
-
-	Usage:
-	  lune run lune/dump/init.luau [version-hash]
-
-	Exit codes:
-	  0 - All dumpers succeeded
-	  1 - One or more dumpers failed or no scripts found
+	Discovery scans `lune/dump/scripts/` for .luau files and executes
+	each dumper script sequentially with progress reporting and error
+	handling. Generates formatted output with execution summary.
 ]=]
 
--- Imports
 local fs = require("@lune/fs")
 local Process = require("@lune/process")
 local stdio = require("@lune/stdio")
-local lib = require("./lib")
+local Lib = require("./lib")
 
--- Type Definitions
+local SCRIPTS_DIR = "lune/dump/scripts"
+local SEPARATOR_WIDTH = 70
+local SEPARATOR = string.rep("=", SEPARATOR_WIDTH)
+local HEADER_FORMAT = "API Dump Analysis  •  %Y-%m-%d %H:%M:%S"
 
---[=[
-	@class Result
-	Execution results tracking success and failure counts.
-]=]
-type Result = {
-	succeeded: number,
-	failed: number,
-}
+local Main = {}
 
--- Module Table
-local Runner = {}
-
--- Private Helpers
+-- Script discovery and validation
 
 --[=[
-	@private
-	Discovers dumper scripts in the dumpers directory.
+	Discovers all .luau dumper scripts in scripts directory.
 
-	@return { string } -- Sorted list of script filenames
+	@return table -- Array of script filenames
 	@error Throws if directory read fails
 ]=]
 local function discoverScripts(): { string }
-	local ok: boolean
-	local entries: any
-	local files: { string }
-
-	ok, entries = pcall(fs.readDir, "lune/dump/scripts")
+	local ok, err = pcall(fs.readDir, SCRIPTS_DIR)
 	if not ok then
-		error("Failed to read dumpers directory")
+		error(`Failed to read {SCRIPTS_DIR}: {err}`)
 	end
+	local entries = err
 
-	files = {}
+	local scripts = {}
 	for _, entry in entries do
 		if string.match(entry, "%.luau$") then
-			table.insert(files, entry)
+			table.insert(scripts, entry)
 		end
 	end
 
-	table.sort(files)
-	return files
+	table.sort(scripts)
+	return scripts
 end
 
+-- Output formatting
+
 --[=[
-	@private
-	Prints formatted header with separator.
+	Prints formatted header with separator lines.
 
-	@param text -- Header text
+	@param text string -- Header text to display
 ]=]
-local function printHeader(text: string)
-	local separator: string
-
-	separator = string.rep("=", 70)
-
+local function printHeader(text: string): ()
 	stdio.write(stdio.style("bold"))
 	stdio.write(stdio.color("cyan"))
-	print("")
-	print(separator)
-	print(text)
-	print(separator)
+	print(`\n{SEPARATOR}\n{text}\n{SEPARATOR}\n`)
 	stdio.write(stdio.style("reset"))
 	stdio.write(stdio.color("reset"))
-	print("")
 end
 
 --[=[
-	@private
+	Prints progress indicator for current script.
+
+	@param index number -- Current script index
+	@param total number -- Total scripts count
+	@param name string -- Script filename
+]=]
+local function printProgress(index: number, total: number, name: string): ()
+	local scriptName = string.gsub(name, "%.luau$", "")
+	stdio.write(stdio.style("bold"))
+	print(`[{index}/{total}] {scriptName}`)
+	stdio.write(stdio.style("reset"))
+end
+
+--[=[
 	Prints execution summary with statistics.
 
-	@param result -- Execution results
-	@param total -- Total scripts run
-	@param elapsed -- Elapsed time in seconds
+	@param succeeded number -- Successful scripts count
+	@param failed number -- Failed scripts count
+	@param total number -- Total scripts count
+	@param elapsed number -- Elapsed time in seconds
 ]=]
-local function printSummary(result: Result, total: number, elapsed: number)
-	local separator: string
-	local color: string
-
-	separator = string.rep("=", 70)
+local function printSummary(succeeded: number, failed: number, total: number, elapsed: number): ()
+	local color = if failed == 0 then "green" else "yellow"
 
 	stdio.write(stdio.style("bold"))
 	stdio.write(stdio.color("cyan"))
-	print("")
-	print(separator)
-	print("Summary")
-	print(separator)
+	print(`\n{SEPARATOR}\nSummary\n{SEPARATOR}`)
 	stdio.write(stdio.style("reset"))
 
-	color = if result.failed == 0 then "green" else "yellow"
 	stdio.write(stdio.color(color))
-	print(`  Succeeded: {result.succeeded}/{total}`)
+	print(`  Succeeded: {succeeded}/{total}`)
 	stdio.write(stdio.color("reset"))
 
-	if result.failed > 0 then
+	if failed > 0 then
 		stdio.write(stdio.color("red"))
-		print(`  Failed: {result.failed}/{total}`)
+		print(`  Failed: {failed}/{total}`)
 		stdio.write(stdio.color("reset"))
 	end
 
@@ -126,124 +108,88 @@ local function printSummary(result: Result, total: number, elapsed: number)
 	stdio.write(stdio.color("reset"))
 end
 
+-- Script execution
+
 --[=[
-	@private
-	Executes a single dumper script.
+	Executes a dumper script with optional version hash.
 
-	@param file -- Script filename
-	@param hash -- Optional version hash
-	@return boolean -- True if script succeeded
+	@param path string -- Full path to script file
+	@param hash string? -- Optional version hash to pass
+	@return boolean -- True if execution succeeded
 ]=]
-local function executeScript(file: string, hash: string?): boolean
-	local args: { string }
-	local path: string
-	local ok: boolean
-	local result: any
+local function executeScript(path: string, hash: string?): boolean
+	local args = { "run", path }
+	if hash then
+		table.insert(args, hash)
+	end
 
-	args = if hash then { hash } else {}
-	path = `lune/dump/scripts/{file}`
-
-	ok, result = pcall(Process.exec, "lune", { "run", path, table.unpack(args) }, {
-		stdio = "inherit",
-	})
+	local ok, result = pcall(Process.exec, "lune", args, { stdio = "inherit" })
 
 	if not ok then
 		stdio.write(stdio.color("red"))
-		stdio.write("x ")
+		stdio.ewrite(`x Script execution failed: {result}\n`)
 		stdio.write(stdio.color("reset"))
-		stdio.ewrite(`Execution failed: {result}\n`)
 		return false
 	end
 
 	if not result.ok then
 		stdio.write(stdio.color("red"))
-		stdio.write("x ")
+		stdio.ewrite(`x Script {path} exited with code {result.code}\n`)
 		stdio.write(stdio.color("reset"))
-		stdio.ewrite(`Exit code {result.code}\n`)
 		return false
 	end
 
 	return true
 end
 
---[=[
-	@private
-	Prints script name with progress indicator.
-
-	@param index -- Current script index (1-based)
-	@param total -- Total number of scripts
-	@param file -- Script filename
-]=]
-local function printScriptName(index: number, total: number, file: string)
-	local scriptName: string
-
-	scriptName = string.gsub(file, "%.luau$", "")
-
-	stdio.write(stdio.style("bold"))
-	print(`[{index}/{total}] {scriptName}`)
-	stdio.write(stdio.style("reset"))
-end
-
--- Public API
+-- Main runner
 
 --[=[
-	Runs all dumper scripts sequentially.
+	Runs all dumper scripts with formatted output.
 
-	@param hash -- Optional version hash to pass to dumpers
-	@error Exits with code 1 if any dumper fails or no scripts found
+	@param hash string? -- Optional version hash (latest if nil)
+	@error Exits with code 1 if any script fails
 ]=]
-function Runner.run(hash: string?)
-	local files: { string }
-	local result: Result
-	local startTime: number
-	local elapsed: number
+function Main.run(hash: string?)
+	local scripts = discoverScripts()
 
-	files = discoverScripts()
-
-	if #files == 0 then
+	if #scripts == 0 then
 		stdio.write(stdio.color("yellow"))
-		stdio.write("! ")
+		print("! No scripts found")
 		stdio.write(stdio.color("reset"))
-		print("No dumper scripts found")
 		Process.exit(1)
 	end
 
-	printHeader(`API Dump Analysis  •  {os.date("%Y-%m-%d %H:%M:%S")}`)
+	printHeader(os.date(HEADER_FORMAT))
 
 	if hash then
 		stdio.write(stdio.color("blue"))
-		stdio.write("i ")
+		print(`i Version: {hash}\n`)
 		stdio.write(stdio.color("reset"))
-		print(`Version: {hash}`)
-		print("")
 	end
 
-	result = {
-		succeeded = 0,
-		failed = 0,
-	}
+	local succeeded = 0
+	local failed = 0
+	local startTime = os.clock()
 
-	startTime = os.time()
+	for i, script in scripts do
+		printProgress(i, #scripts, script)
 
-	for index, file in files do
-		printScriptName(index, #files, file)
-
-		if executeScript(file, hash) then
-			result.succeeded += 1
+		if executeScript(`{SCRIPTS_DIR}/{script}`, hash) then
+			succeeded += 1
 		else
-			result.failed += 1
+			failed += 1
 		end
 
 		print("")
 	end
 
-	elapsed = os.time() - startTime
-	printSummary(result, #files, elapsed)
+	local elapsed = os.clock() - startTime
+	printSummary(succeeded, failed, #scripts, elapsed)
 
-	if result.failed > 0 then
+	if failed > 0 then
 		Process.exit(1)
 	end
 end
 
--- Entry Point
-lib.runCli(Runner.run, Process.args)
+Lib.runCli(Main.run, Process.args)

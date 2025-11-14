@@ -5,330 +5,124 @@
 
 	Shared utilities for API dump analysis.
 
-	Provides:
-	- API dump fetching and caching from Roblox CDN
-	- Tag normalization for consistent access
-	- File I/O with error handling
-	- Standardized output formatting
-	- Logging and CLI utilities
-	- Class inheritance checking
+	Provides core functionality for fetching Roblox API dumps from CDN,
+	normalizing tag structures, writing JSON output files, and managing
+	class inheritance relationships.
 ]=]
 
--- ===== Imports =====
-
 local fs = require("@lune/fs")
-local stdio = require("@lune/stdio")
 local Logging = require("../shared/logging")
 local Http = require("../shared/http")
 local Serde = require("../shared/serde")
 
--- Type Definitions
+local CDN_BASE = "https://setup.rbxcdn.com"
+local OUTPUT_DIR = "lune/dump/gen"
+local PROGRESS_INTERVAL = 10
 
---[=[
-	@class Class
-	Represents a class from the API dump.
-]=]
+-- Export Types
+
 export type Class = {
 	Name: string,
 	Superclass: string?,
-	Tags: { [string]: any }?,
+	Tags: { [any]: any }?,
 	Members: { Member },
 }
 
---[=[
-	@class ClassMap
-	Dictionary of classes by name for O(1) lookup.
-]=]
 export type ClassMap = { [string]: Class }
 
---[=[
-	@class Member
-	Represents a class member (property, method, event, etc.).
-]=]
 export type Member = {
 	Name: string,
 	MemberType: string,
 	ValueType: ValueType?,
 	Serialization: Serialization?,
-	Tags: { [string]: any }?,
+	Tags: { [any]: any }?,
 	Default: string?,
 }
 
---[=[
-	@class ValueType
-	Describes property value type.
-]=]
 export type ValueType = {
 	Name: string,
 	Category: "Primitive" | "DataType" | "Enum" | "Class",
 }
 
---[=[
-	@class Serialization
-	Describes serialization capabilities.
-]=]
 export type Serialization = {
 	CanLoad: boolean,
 	CanSave: boolean,
 }
 
---[=[
-	@class ApiDump
-	Root structure of API dump from Roblox CDN.
-]=]
 export type ApiDump = {
 	Classes: { Class },
 }
 
---[=[
-	@class StandardOutput
-	Standard dumper output format.
-
-	Consistent schema across all dumpers:
-	- count: Total number of items in data array
-	- metadata: { version: string, timestamp: string }
-	- data: Array of result items (always an array, never nested objects)
-	- breakdown: Optional categorization counts (when data has 'type' field)
-
-	Benefits:
-	- Uniform iteration: consumers can always loop over data[]
-	- Type discrimination: use 'type' field when mixing categories
-	- Deterministic: data is always sorted for stable diffs
-	- Simple: no nested groupings or multiple top-level keys
-]=]
 export type StandardOutput = {
 	count: number,
-	metadata: {
-		version: string,
-		timestamp: string,
-	},
+	metadata: { version: string, timestamp: string },
 	data: { any },
 	breakdown: { [string]: number }?,
 }
 
+-- Internal Types
+
+type FetchResult = {
+	ok: boolean,
+	data: ApiDump?,
+	error: string?,
+}
+
 -- Module State
 
--- Cache for fetched API dumps by hash to avoid redundant network requests
-local fetchCache: { [string]: ApiDump } = {}
+local cache: { [string]: ApiDump } = {}
 
 local Lib = {}
 
--- Private Helpers
+-- Utilities
 
 --[=[
-	@private
-	Fetches specific API dump version from Roblox CDN.
+	Normalizes a single tag entry into dictionary format.
 
-	@param hash -- Version hash
-	@return ApiDump? -- API dump if successful
-	@return boolean -- Success status
-	@return string? -- Error message if failed
+	Handles both array-style tags (number keys) and object-style tags.
+	Mutates the tags table in place for performance.
+
+	@param key any -- Tag key (number for arrays, string for objects)
+	@param value any -- Tag value
+	@param tags table -- Output tags dictionary (mutated)
 ]=]
-local function tryVersion(hash: string): (ApiDump?, boolean, string?)
-	local url: string = `https://setup.rbxcdn.com/{hash}-Full-API-Dump.json`
-
-	Logging.verbose(`Attempting to fetch {hash}...`)
-	local httpResult = Http.get(url)
-	if not httpResult.success then
-		local errorMsg = `Failed to fetch {hash}: {httpResult.error}`
-		if httpResult.statusCode == 403 then
-			Logging.verbose(`Access denied for {hash}`)
-		elseif httpResult.statusCode == 404 then
-			Logging.verbose(`Version {hash} not found`)
-		else
-			Logging.verbose(errorMsg)
-		end
-		return nil, false, errorMsg
-	end
-
-	local decodeResult = Serde.decodeJson(httpResult.response.body)
-	if not decodeResult.success then
-		local errorMsg = `Failed to parse JSON for {hash}: {decodeResult.error}`
-		Logging.verbose(errorMsg)
-		return nil, false, errorMsg
-	end
-
-	Logging.dim(`Fetched {hash} ({Logging.formatSize(#httpResult.response.body)})`)
-	return decodeResult.data, true, nil
-end
-
---[=[
-	@private
-	Finds latest API dump version from deployment history.
-
-	@return ApiDump -- Latest API dump
-	@error Throws if no valid dump found
-]=]
-local function findLatest(): ApiDump
-	local historyUrl: string = "https://setup.rbxcdn.com/DeployHistory.txt"
-
-	Logging.info("Fetching Roblox deployment history...")
-	local httpResult = Http.get(historyUrl)
-
-	if not httpResult.success then
-		error(`Failed to fetch deployment history: {httpResult.error}`)
-	end
-
-	local history: string = httpResult.response.body
-	Logging.dim(`Retrieved deployment history ({Logging.formatSize(#history)})`)
-
-	-- Count total versions for progress reporting
-	local totalVersions = 0
-	for _ in string.gmatch(history, "version%-[^%s]+") do
-		totalVersions += 1
-	end
-
-	Logging.info(`Searching through {totalVersions} deployment versions for accessible API dump...`)
-
-	local attemptCount = 0
-	local lastError: string = "Unknown error"
-
-	for line in string.gmatch(history, "[^\r\n]+") do
-		local hash: string? = string.match(line, "(version%-[^%s]+)")
-		if hash then
-			attemptCount += 1
-			local api: ApiDump?
-			local success: boolean
-			local errorMsg: string?
-
-			api, success, errorMsg = tryVersion(hash)
-			if success and api then
-				Logging.success(`Found accessible API dump: {hash}`)
-				return api
+local function normalizeTag(key: any, value: any, tags: { [string]: any })
+	if type(key) == "number" then
+		if type(value) == "string" then
+			tags[value] = true
+		elseif type(value) == "table" then
+			for k, v in value do
+				tags[k] = v
 			end
-
-			if errorMsg then
-				lastError = errorMsg
-			end
-
-			-- Show progress every 10 attempts
-			if attemptCount % 10 == 0 then
-				Logging.progress(attemptCount, totalVersions, "Checking versions...")
-			end
-		end
-	end
-
-	error(`Failed to fetch any accessible API dump after checking {attemptCount} versions. Last error: {lastError}`)
-end
-
--- Public API
-
---[=[
-	Fetches API dump from Roblox CDN.
-	Results are memoized to avoid redundant downloads within a single run.
-
-	@param hash -- Optional version hash (defaults to latest)
-	@return ApiDump -- Parsed API dump
-	@error Throws if fetch fails
-]=]
-function Lib.fetch(hash: string?): ApiDump
-	local cacheKey: string
-	local api: ApiDump?
-	local ok: boolean
-
-	cacheKey = hash or "latest"
-
-	-- Return cached result if available
-	if fetchCache[cacheKey] then
-		return fetchCache[cacheKey]
-	end
-
-	if hash then
-		api, ok = tryVersion(hash)
-		if not ok or not api then
-			error(`Failed to fetch version {hash}`)
 		end
 	else
-		api = findLatest()
+		tags[key] = value
 	end
-
-	-- Cache the result
-	fetchCache[cacheKey] = api
-	return api
 end
 
 --[=[
-	Normalizes tags into consistent dictionary format.
+	Normalizes API dump tags into dictionary format.
 
-	Tags from API dumps can be arrays of strings or objects.
-	This converts them to dictionaries for easy lookup.
-
-	@param raw -- Raw tags from API dump
-	@return { [string]: any } -- Normalized tag dictionary
+	@param raw table? -- Raw tags from API dump
+	@return table -- Normalized tag dictionary
 ]=]
 function Lib.tags(raw: { any }?): { [string]: any }
-	local result: { [string]: any }
-
 	if not raw then
 		return {}
 	end
 
-	result = {}
-
+	local tags: { [string]: any } = {}
 	for key, value in raw do
-		if type(key) == "number" then
-			-- Array-style tag
-			if type(value) == "string" then
-				result[value] = true
-			elseif type(value) == "table" then
-				-- Nested table of tags
-				for k, v in value do
-					result[k] = v
-				end
-			end
-		else
-			-- Object-style tag
-			result[key] = value
-		end
+		normalizeTag(key, value, tags)
 	end
-
-	return result
+	return tags
 end
 
 --[=[
-	Writes output file to dumps directory.
+	Creates metadata object for output files.
 
-	Creates the directory if it doesn't exist.
-
-	@param name -- Filename (including extension)
-	@param content -- File content
-	@error Throws if write fails
-]=]
-function Lib.write(name: string, content: string)
-	local dir: string
-	local ok: boolean
-	local err: any
-	local path: string
-	local writeOk: boolean
-	local writeErr: any
-
-	dir = "lune/dump/gen"
-
-	ok, err = pcall(function()
-		if not fs.isDir(dir) then
-			fs.writeDir(dir)
-		end
-	end)
-
-	if not ok then
-		error(`Failed to create directory {dir}: {err}`)
-	end
-
-	path = `{dir}/{name}`
-	writeOk, writeErr = pcall(fs.writeFile, path, content)
-
-	if not writeOk then
-		error(`Failed to write file {path}: {writeErr}`)
-	end
-
-	Logging.file(path)
-end
-
---[=[
-	Creates standardized metadata for output files.
-
-	@param hash -- Optional version hash (defaults to "latest")
-	@return { version: string, timestamp: string } -- Metadata object
+	@param hash string? -- Optional version hash
+	@return table -- Metadata with version and timestamp
 ]=]
 function Lib.metadata(hash: string?): { version: string, timestamp: string }
 	return {
@@ -338,12 +132,12 @@ function Lib.metadata(hash: string?): { version: string, timestamp: string }
 end
 
 --[=[
-	Creates a StandardOutput structure.
+	Creates standardized output structure.
 
-	@param hash -- Optional version hash
-	@param data -- Data array (must be pre-sorted)
-	@param breakdown -- Optional breakdown counts by type
-	@return StandardOutput -- Standardized output object
+	@param hash string? -- Optional version hash
+	@param data table -- Result data array
+	@param breakdown table? -- Optional category counts
+	@return StandardOutput -- Complete output structure
 ]=]
 function Lib.output(hash: string?, data: { any }, breakdown: { [string]: number }?): StandardOutput
 	return {
@@ -354,143 +148,278 @@ function Lib.output(hash: string?, data: { any }, breakdown: { [string]: number 
 	}
 end
 
---[=[
-	Prints success message with count.
+-- File I/O
 
-	@param count -- Primary count
-	@param label -- Count label
-	@param secondary -- Optional secondary info
+--[=[
+	Ensures output directory exists, creating if needed.
+
+	@error Throws if directory creation fails
 ]=]
-function Lib.success(count: number, label: string, secondary: string?)
-	Logging.successCount(count, label, secondary)
+local function ensureDir()
+	local ok, result = pcall(function()
+		if not fs.isDir(OUTPUT_DIR) then
+			fs.writeDir(OUTPUT_DIR)
+		end
+	end)
+
+	if not ok then
+		error(`Failed to create {OUTPUT_DIR}: {result}`)
+	end
 end
 
 --[=[
-	Serializes data to JSON and writes to dumps directory.
+	Writes content to file in output directory.
 
-	If hash is present in data.metadata.version and not "latest",
-	it's included in the filename to prevent overwriting.
+	@param name string -- Filename with extension
+	@param content string -- File content
+	@error Throws if write fails
+]=]
+function Lib.write(name: string, content: string)
+	ensureDir()
+	local path = `{OUTPUT_DIR}/{name}`
+	local ok, err = pcall(fs.writeFile, path, content)
+	if not ok then
+		error(`Failed to write file {path}: {err}`)
+	end
+	Logging.file(path)
+end
 
-	@param name -- Base filename without extension
-	@param data -- Data to serialize (should be StandardOutput)
-	@error Throws if serialization or write fails
+--[=[
+	Serializes data to JSON and writes to file.
+
+	@param name string -- Base filename without extension
+	@param data any -- Data to serialize
+	@error Throws if encode or write fails
 ]=]
 function Lib.json(name: string, data: any)
-	local encodeResult = Serde.encodeJson(data, true)
+	local result = Serde.encodeJson(data, true)
 
-	if not encodeResult.success then
-		error(`Failed to encode JSON: {encodeResult.error}`)
+	if not result.success then
+		error(`JSON encode failed for {name}: {result.error}`)
 	end
 
-	-- Include hash in filename if available
-	local filename: string = name
-	if data.metadata and data.metadata.version and data.metadata.version ~= "latest" then
+	local filename = name
+	if data.metadata and data.metadata.version ~= "latest" then
 		filename = `{name}-{data.metadata.version}`
 	end
 
-	Lib.write(`{filename}.json`, encodeResult.json)
+	Lib.write(`{filename}.json`, result.json)
+end
+
+-- Logging
+
+--[=[
+	Logs success message with count.
+
+	@param count number -- Item count
+	@param label string -- Item label
+	@param extra string? -- Optional extra info
+]=]
+function Lib.success(count: number, label: string, extra: string?): ()
+	Logging.successCount(count, label, extra)
 end
 
 --[=[
-	Logs an error message with consistent formatting.
+	Logs error message.
 
-	@param message -- Error message
+	@param msg string -- Error message
 ]=]
-function Lib.error(message: string)
-	Logging.error(message)
+function Lib.error(msg: string): ()
+	Logging.error(msg)
 end
 
 --[=[
-	Logs a warning message with consistent formatting.
+	Logs warning message.
 
-	@param message -- Warning message
+	@param msg string -- Warning message
 ]=]
-function Lib.warn(message: string)
-	Logging.warn(message)
+function Lib.warn(msg: string): ()
+	Logging.warn(msg)
 end
 
 --[=[
-	Logs an info message with consistent formatting.
+	Logs info message.
 
-	@param message -- Info message
+	@param msg string -- Info message
 ]=]
-function Lib.info(message: string)
-	Logging.info(message)
+function Lib.info(msg: string): ()
+	Logging.info(msg)
 end
+
+-- API Fetching
+
+--[=[
+	Attempts to fetch a specific API dump version from CDN.
+
+	@param hash string -- Version hash to fetch
+	@return FetchResult -- Success/failure with data or error
+]=]
+local function tryFetch(hash: string): FetchResult
+	Logging.verbose(`Fetching {hash}...`)
+
+	local httpResult = Http.get(`{CDN_BASE}/{hash}-Full-API-Dump.json`)
+	if not httpResult.success then
+		if httpResult.statusCode == 403 then
+			Logging.verbose(`Access denied: {hash}`)
+		elseif httpResult.statusCode == 404 then
+			Logging.verbose(`Not found: {hash}`)
+		end
+		return { ok = false, data = nil, error = httpResult.error }
+	end
+
+	local body = httpResult.response.body
+	local parseResult = Serde.decodeJson(body)
+	if not parseResult.success then
+		return { ok = false, data = nil, error = parseResult.error }
+	end
+
+	Logging.dim(`Fetched {hash} ({Logging.formatSize(#body)})`)
+	return { ok = true, data = parseResult.data, error = nil }
+end
+
+--[=[
+	Counts version hashes in deployment history.
+
+	@param history string -- Deployment history text
+	@return number -- Total version count
+]=]
+local function countVersions(history: string): number
+	local count = 0
+	for _ in string.gmatch(history, "version%-[^%s]+") do
+		count += 1
+	end
+	return count
+end
+
+--[=[
+	Finds latest accessible API dump by scanning deployment history.
+
+	@return ApiDump -- Latest accessible dump
+	@error Throws if no accessible dump found
+]=]
+local function findLatest(): ApiDump
+	Logging.info("Fetching deployment history...")
+
+	local historyResult = Http.get(`{CDN_BASE}/DeployHistory.txt`)
+	if not historyResult.success then
+		error(`History fetch failed: {historyResult.error}`)
+	end
+
+	local history = historyResult.response.body
+	Logging.dim(`History size: {Logging.formatSize(#history)}`)
+
+	local totalVersions = countVersions(history)
+	Logging.info(`Checking {totalVersions} versions...`)
+
+	local attempts = 0
+	local lastError = "No versions found"
+
+	for line in string.gmatch(history, "[^\r\n]+") do
+		local hash = string.match(line, "(version%-[^%s]+)")
+		if hash then
+			attempts += 1
+			local result = tryFetch(hash)
+
+			if result.ok and result.data then
+				Logging.success(`Found: {hash}`)
+				return result.data
+			end
+
+			if result.error then
+				lastError = result.error
+			end
+
+			if attempts % PROGRESS_INTERVAL == 0 then
+				Logging.progress(attempts, totalVersions, "Searching...")
+			end
+		end
+	end
+
+	error(`No accessible dump after {attempts} attempts. Last: {lastError}`)
+end
+
+--[=[
+	Fetches API dump from Roblox CDN with caching.
+
+	@param hash string? -- Optional version hash (latest if nil)
+	@return ApiDump -- Parsed API dump
+	@error Throws if fetch fails
+]=]
+function Lib.fetch(hash: string?): ApiDump
+	local key = hash or "latest"
+
+	if cache[key] then
+		return cache[key]
+	end
+
+	local dump: ApiDump
+	if hash then
+		local result = tryFetch(hash)
+		if not result.ok or not result.data then
+			error(`Failed to fetch {hash}`)
+		end
+		dump = result.data
+	else
+		dump = findLatest()
+	end
+
+	cache[key] = dump
+	return dump
+end
+
+-- Class Utilities
 
 --[=[
 	Checks if class inherits from base class.
 
-	Walks the inheritance chain to determine relationship.
-
-	@param name -- Class name to check
-	@param base -- Base class name
-	@param map -- Class lookup map
-	@return boolean -- True if class inherits from base
+	@param name string -- Class name to check
+	@param base string -- Target base class
+	@param map ClassMap -- Class lookup map
+	@return boolean -- True if inherits from base
 ]=]
 function Lib.inherits(name: string, base: string, map: ClassMap): boolean
-	local current: Class?
-
-	current = map[name]
-
+	local current = map[name]
 	while current do
 		if current.Name == base then
 			return true
 		end
-
 		if not current.Superclass then
 			return false
 		end
-
 		current = map[current.Superclass]
 	end
-
 	return false
 end
 
 --[=[
-	Builds class name lookup map from array.
+	Builds class lookup map from array.
 
-	Converts array to dictionary for O(1) lookups.
-
-	@param list -- Array of classes
-	@return ClassMap -- Class lookup map
+	@param list table -- Array of classes
+	@return ClassMap -- Name-to-class dictionary
 ]=]
 function Lib.classes(list: { Class }): ClassMap
-	local result: ClassMap
-
-	result = {}
+	local map: ClassMap = table.create(#list)
 	for _, class in list do
-		result[class.Name] = class
+		map[class.Name] = class
 	end
-	return result
+	return map
 end
 
+-- CLI
+
 --[=[
-	Runs a dumper script with standardized error handling.
+	Runs dumper script with error handling.
 
-	Provides consistent CLI entrypoint behavior:
-	- Parses Process.args for optional hash
-	- Catches errors and formats as red "Fatal" message
-	- Exits with code 1 on failure
-
-	@param fn -- Function to run (receives hash parameter)
-	@param args -- Process arguments array
+	@param fn function -- Dumper function to run
+	@param args table -- Process arguments
 	@error Exits with code 1 on failure
 ]=]
 function Lib.runCli(fn: (string?) -> (), args: { string })
-	local hash: string?
-	local ok: boolean
-	local err: any
-	local Process: any
-
-	hash = args[1]
-
-	ok, err = pcall(fn, hash)
+	local hash = args[1]
+	local ok, err = pcall(fn, hash)
 	if not ok then
 		Lib.error(`Fatal: {err}`)
-		Process = require("@lune/process")
-		Process.exit(1)
+		require("@lune/process").exit(1)
 	end
 end
 

@@ -3,26 +3,25 @@
 --[=[
 	@class NotScriptable
 
-	Analyzes NotScriptable properties with serialization support.
+	Analyzes NotScriptable properties and proxy patterns.
 
-	Detects three categories:
-	- NotScriptable properties that are serializable
-	- Properties with serialization-related names (xml, internal, serial, replica)
-	- Proxy properties (scriptable enum properties matching NotScriptable enum types)
-
-	Output: Array with type="notScriptable", type="serializationNamed", or type="proxy".
+	Identifies properties hidden from scripts but serializable, properties
+	with serialization-related names (xml, internal, serial, replica),
+	and proxy properties where scriptable enum properties mirror
+	NotScriptable ones for backward compatibility.
 ]=]
 
--- Imports
 local Process = require("@lune/process")
-local lib = require("../lib")
+local Lib = require("../lib")
 
--- Type Definitions
+-- Constants
 
---[=[
-	@class NotScriptableProperty
-	NotScriptable property that can be serialized.
-]=]
+local MEMBER_TYPE_PROPERTY = "Property"
+local CATEGORY_ENUM = "Enum"
+local SERIALIZATION_NAME_PATTERNS = { "xml", "internal", "serial", "replica" }
+
+-- Types
+
 type NotScriptableProperty = {
 	type: "notScriptable",
 	class: string,
@@ -31,10 +30,6 @@ type NotScriptableProperty = {
 	descriptor: string?,
 }
 
---[=[
-	@class SerializationProperty
-	Property with serialization-related naming.
-]=]
 type SerializationProperty = {
 	type: "serializationNamed",
 	class: string,
@@ -43,10 +38,6 @@ type SerializationProperty = {
 	serializable: boolean,
 }
 
---[=[
-	@class ProxyProperty
-	Detected proxy property for NotScriptable enum.
-]=]
 type ProxyProperty = {
 	type: "proxy",
 	class: string,
@@ -55,37 +46,22 @@ type ProxyProperty = {
 	enumType: string,
 }
 
--- Type union for combined output
 type Property = NotScriptableProperty | SerializationProperty | ProxyProperty
 
--- Module State
+type EnumTracker = { [string]: string }
 
--- Property name patterns that suggest serialization-related purposes
-local SERIALIZATION_PATTERNS = {
-	"xml",
-	"internal",
-	"serial",
-	"replica",
-}
-
--- Module Table
-local NotScriptable = {}
-
--- Private Helpers
+-- Helpers
 
 --[=[
-	@private
-	Checks if property name suggests serialization purpose.
+	Checks if property name matches serialization patterns.
 
-	@param name -- Property name
-	@return boolean -- True if serialization-related
+	@param name string -- Property name to check
+	@return boolean -- True if matches any pattern
 ]=]
-local function isSerializationNamed(name: string): boolean
-	local lower: string
-
-	lower = string.lower(name)
-	for _, pattern in SERIALIZATION_PATTERNS do
-		if string.find(lower, pattern) then
+local function hasSerializationPattern(name: string): boolean
+	local lowerName = string.lower(name)
+	for _, pattern in SERIALIZATION_NAME_PATTERNS do
+		if string.find(lowerName, pattern) then
 			return true
 		end
 	end
@@ -93,272 +69,170 @@ local function isSerializationNamed(name: string): boolean
 end
 
 --[=[
-	@private
-	Processes NotScriptable serializable property.
+	Compares two Property records for sorting.
 
-	@param className -- Class name
-	@param member -- Member to process
-	@param tags -- Normalized tags
-	@param props -- Properties list
-	@param enums -- Enum tracker (enumType -> propertyName)
+	Handles different property types, using appropriate field
+	for comparison (property name or real name for proxies).
+
+	@param a Property -- First property
+	@param b Property -- Second property
+	@return boolean -- True if a should come before b
 ]=]
-local function processNotScriptableProperty(
-	className: string,
-	member: lib.Member,
-	tags: { [string]: any },
-	props: { NotScriptableProperty },
-	enums: { [string]: string }
-)
-	local valueType: lib.ValueType
-
-	valueType = member.ValueType
-	if not valueType then
-		return
+local function compareProperties(a: Property, b: Property): boolean
+	if a.class == b.class then
+		local aName = if a.type == "proxy" then a.real else a.property
+		local bName = if b.type == "proxy" then b.real else b.property
+		return aName < bName
 	end
-
-	-- Track enum types for proxy detection
-	if valueType.Category == "Enum" then
-		enums[valueType.Name] = member.Name
-	end
-
-	table.insert(props, {
-		type = "notScriptable",
-		class = className,
-		property = member.Name,
-		valueType = valueType.Name,
-		descriptor = tags.PreferredDescriptorName,
-	})
+	return a.class < b.class
 end
 
---[=[
-	@private
-	Processes serialization-named property.
-
-	@param className -- Class name
-	@param member -- Member to process
-	@param tags -- Normalized tags
-	@param serialization -- Serialization info
-	@param serProps -- Serialization properties list
-]=]
-local function processSerializationProperty(
-	className: string,
-	member: lib.Member,
-	tags: { [string]: any },
-	serialization: lib.Serialization,
-	serProps: { SerializationProperty }
-)
-	table.insert(serProps, {
-		type = "serializationNamed",
-		class = className,
-		property = member.Name,
-		scriptable = not tags.NotScriptable,
-		serializable = serialization.CanLoad and serialization.CanSave,
-	})
-end
+local NotScriptable = {}
 
 --[=[
-	@private
-	Detects proxy properties for NotScriptable enums.
+	Analyzes NotScriptable and serialization-named properties.
 
-	Only flags properties that are scriptable AND serializable to avoid
-	false positives from other NotScriptable or non-serializable properties.
+	Three-pass processing per class:
+	1. Find NotScriptable serializable properties and build enum tracker
+	2. Find properties with serialization-related names
+	3. Find scriptable enum proxies for NotScriptable enum properties
 
-	@param class -- Class to check
-	@param enums -- Enum tracker (enumType -> realPropertyName)
-	@param proxies -- Proxies list
+	@param hash string? -- Optional version hash (latest if nil)
 ]=]
-local function detectProxies(class: lib.Class, enums: { [string]: string }, proxies: { ProxyProperty })
-	local valueType: lib.ValueType
-	local tags: { [string]: any }
-	local ser: lib.Serialization
+function NotScriptable.run(hash: string?): ()
+	local api = Lib.fetch(hash)
 
-	for enumType, realName in enums do
+	-- Processing
+
+	local properties: { Property } = {}
+	local notScriptableCount = 0
+	local serializationNamedCount = 0
+
+	for _, class in api.Classes do
+		-- Per-class enum tracking for proxy detection
+		local enumTracker: EnumTracker = {}
+
+		-- Pass 1: NotScriptable properties
 		for _, member in class.Members do
-			if member.MemberType ~= "Property" or not member.ValueType or not member.Serialization then
+			local isProperty = member.MemberType == MEMBER_TYPE_PROPERTY
+			local hasValueType = member.ValueType ~= nil
+			local hasSerializationInfo = member.Serialization ~= nil
+
+			if not (isProperty and hasValueType and hasSerializationInfo) then
 				continue
 			end
 
-			-- Skip the real property itself
-			if member.Name == realName then
+			local tags = Lib.tags(member.Tags)
+			local valueType = member.ValueType
+			local serialization = member.Serialization
+			local isNotScriptable = tags.NotScriptable == true
+			local isSerializable = serialization.CanLoad and serialization.CanSave
+
+			if isNotScriptable and isSerializable then
+				notScriptableCount += 1
+
+				-- Track enum properties for proxy detection
+				if valueType.Category == CATEGORY_ENUM then
+					enumTracker[valueType.Name] = member.Name
+				end
+
+				local notScriptableProp: NotScriptableProperty = {
+					type = "notScriptable",
+					class = class.Name,
+					property = member.Name,
+					valueType = valueType.Name,
+					descriptor = tags.PreferredDescriptorName,
+				}
+				table.insert(properties, notScriptableProp)
+			end
+		end
+
+		-- Pass 2: Serialization-named properties
+		for _, member in class.Members do
+			local isProperty = member.MemberType == MEMBER_TYPE_PROPERTY
+			local hasValueType = member.ValueType ~= nil
+			local hasSerializationInfo = member.Serialization ~= nil
+
+			if not (isProperty and hasValueType and hasSerializationInfo) then
 				continue
 			end
 
-			valueType = member.ValueType
-			if valueType.Category == "Enum" and valueType.Name == enumType then
-				tags = lib.tags(member.Tags)
-				ser = member.Serialization
+			if hasSerializationPattern(member.Name) then
+				serializationNamedCount += 1
 
-				-- Only flag scriptable, serializable properties as proxies
-				if not tags.NotScriptable and ser.CanLoad and ser.CanSave then
-					table.insert(proxies, {
+				local tags = Lib.tags(member.Tags)
+				local serialization = member.Serialization
+
+				local serializationProp: SerializationProperty = {
+					type = "serializationNamed",
+					class = class.Name,
+					property = member.Name,
+					scriptable = not tags.NotScriptable,
+					serializable = serialization.CanLoad and serialization.CanSave,
+				}
+				table.insert(properties, serializationProp)
+			end
+		end
+
+		-- Pass 3: Proxy properties
+		for enumType, realPropertyName in enumTracker do
+			for _, member in class.Members do
+				local isProperty = member.MemberType == MEMBER_TYPE_PROPERTY
+				local hasValueType = member.ValueType ~= nil
+				local hasSerializationInfo = member.Serialization ~= nil
+				local isDifferentProperty = member.Name ~= realPropertyName
+
+				if not (isProperty and hasValueType and hasSerializationInfo and isDifferentProperty) then
+					continue
+				end
+
+				local valueType = member.ValueType
+				local matchesEnumType = valueType.Category == CATEGORY_ENUM and valueType.Name == enumType
+
+				if not matchesEnumType then
+					continue
+				end
+
+				local tags = Lib.tags(member.Tags)
+				local serialization = member.Serialization
+				local isScriptable = not tags.NotScriptable
+				local isSerializable = serialization.CanLoad and serialization.CanSave
+
+				if isScriptable and isSerializable then
+					local proxyProp: ProxyProperty = {
 						type = "proxy",
 						class = class.Name,
-						real = realName,
+						real = realPropertyName,
 						proxy = member.Name,
 						enumType = enumType,
-					})
+					}
+					table.insert(properties, proxyProp)
 				end
 			end
 		end
 	end
+
+	-- Calculate proxy count from remaining properties
+	local proxyCount = #properties - notScriptableCount - serializationNamedCount
+
+	-- Sorting
+
+	table.sort(properties, compareProperties)
+
+	-- Output
+
+	local breakdown = {
+		notScriptable = notScriptableCount,
+		serializationNamed = serializationNamedCount,
+		proxy = proxyCount,
+	}
+
+	Lib.json("not-scriptable", Lib.output(hash, properties, breakdown))
+	Lib.success(
+		#properties,
+		"items",
+		`{notScriptableCount} NotScriptable, {proxyCount} proxies, {serializationNamedCount} serialization-named`
+	)
 end
 
---[=[
-	@private
-	Processes a single class for all property types.
-
-	@param class -- Class to process
-	@param props -- NotScriptable properties list
-	@param serProps -- Serialization-named properties list
-	@param proxies -- Proxy properties list
-]=]
-local function processClass(
-	class: lib.Class,
-	props: { NotScriptableProperty },
-	serProps: { SerializationProperty },
-	proxies: { ProxyProperty }
-)
-	local enums: { [string]: string }
-	local ok: boolean
-	local tags: any
-	local ser: lib.Serialization
-
-	-- Track enum types from NotScriptable properties for proxy detection
-	enums = {}
-
-	for _, member in class.Members do
-		if member.MemberType ~= "Property" or not member.ValueType or not member.Serialization then
-			continue
-		end
-
-		ok, tags = pcall(lib.tags, member.Tags)
-		if not ok then
-			lib.warn(`Error processing {class.Name}.{member.Name}: {tags}`)
-			continue
-		end
-
-		ser = member.Serialization
-
-		-- Check NotScriptable + serializable
-		if tags.NotScriptable and ser.CanLoad and ser.CanSave then
-			processNotScriptableProperty(class.Name, member, tags, props, enums)
-		end
-
-		-- Check serialization-related naming
-		if isSerializationNamed(member.Name) then
-			processSerializationProperty(class.Name, member, tags, ser, serProps)
-		end
-	end
-
-	-- Detect proxy properties after collecting enum types
-	detectProxies(class, enums, proxies)
-end
-
---[=[
-	@private
-	Collects NotScriptable properties from API dump.
-
-	@param api -- API dump
-	@return { NotScriptableProperty } -- NotScriptable properties
-	@return { SerializationProperty } -- Serialization-named properties
-	@return { ProxyProperty } -- Proxy properties
-]=]
-local function collectProperties(
-	api: lib.ApiDump
-): ({ NotScriptableProperty }, { SerializationProperty }, { ProxyProperty })
-	local props: { NotScriptableProperty }
-	local serProps: { SerializationProperty }
-	local proxies: { ProxyProperty }
-	local ok: boolean
-	local err: any
-
-	props = {}
-	serProps = {}
-	proxies = {}
-
-	for _, class in api.Classes do
-		ok, err = pcall(processClass, class, props, serProps, proxies)
-		if not ok then
-			lib.warn(`Error processing {class.Name}: {err}`)
-		end
-	end
-
-	return props, serProps, proxies
-end
-
---[=[
-	@private
-	Combines and sorts properties into unified output.
-
-	@param props -- NotScriptable properties
-	@param serProps -- Serialization-named properties
-	@param proxies -- Proxy properties
-	@return { Property } -- Combined sorted properties
-]=]
-local function buildOutput(
-	props: { NotScriptableProperty },
-	serProps: { SerializationProperty },
-	proxies: { ProxyProperty }
-): { Property }
-	local combined: { Property }
-
-	combined = {}
-
-	for _, prop in props do
-		table.insert(combined, prop)
-	end
-
-	for _, prop in serProps do
-		table.insert(combined, prop)
-	end
-
-	for _, proxy in proxies do
-		table.insert(combined, proxy)
-	end
-
-	-- Sort for deterministic output
-	table.sort(combined, function(a, b)
-		local aKey: string
-		local bKey: string
-
-		if a.class == b.class then
-			aKey = a.property or a.real or ""
-			bKey = b.property or b.real or ""
-			return aKey < bKey
-		end
-		return a.class < b.class
-	end)
-
-	return combined
-end
-
--- Public API
-
---[=[
-	Runs NotScriptable analysis on API dump.
-
-	@param hash -- Optional version hash
-	@error Throws if analysis fails
-]=]
-function NotScriptable.run(hash: string?)
-	local api: lib.ApiDump
-	local props: { NotScriptableProperty }
-	local serProps: { SerializationProperty }
-	local proxies: { ProxyProperty }
-	local combined: { Property }
-
-	api = lib.fetch(hash)
-	props, serProps, proxies = collectProperties(api)
-	combined = buildOutput(props, serProps, proxies)
-
-	lib.json("not-scriptable", lib.output(hash, combined, {
-		notScriptable = #props,
-		serializationNamed = #serProps,
-		proxy = #proxies,
-	}))
-
-	lib.success(#combined, "items", `{#props} NotScriptable, {#proxies} proxies, {#serProps} serialization-named`)
-end
-
--- Entry Point
-lib.runCli(NotScriptable.run, Process.args)
+Lib.runCli(NotScriptable.run, Process.args)

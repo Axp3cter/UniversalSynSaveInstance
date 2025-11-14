@@ -3,49 +3,37 @@
 --[=[
 	@class NotCreatable
 
-	Identifies classes marked NotCreatable.
+	Identifies NotCreatable classes excluding common patterns.
 
-	Filters out Services, Base classes, and common abstract patterns.
-	These classes cannot be instantiated via Instance.new() but may appear
-	in serialized data.
-
-	Output: Array of classes with name, isService flag, and tags.
+	Finds classes marked NotCreatable that aren't Services or common
+	base types (Base, Page, Plugin, Setting), representing classes
+	only obtainable through engine APIs or special constructors.
 ]=]
 
--- Imports
 local Process = require("@lune/process")
-local lib = require("../lib")
+local Lib = require("../lib")
 
--- Type Definitions
+-- Constants
 
---[=[
-	@class ClassInfo
-	NotCreatable class information.
-]=]
+local EXCLUDE_PATTERNS = { "Base", "Page", "Plugin", "Setting" }
+
+-- Types
+
 type ClassInfo = {
 	name: string,
 	isService: boolean,
 	tags: { string },
 }
 
--- Module State
-
--- Exclusion patterns: common abstract/base class names to ignore
-local EXCLUDE_PATTERNS = { "Base", "Page", "Plugin", "Setting" }
-
--- Module Table
-local NotCreatable = {}
-
--- Private Helpers
+-- Helpers
 
 --[=[
-	@private
-	Checks if class name contains an exclusion pattern.
+	Checks if class name matches any exclusion pattern.
 
-	@param name -- Class name
-	@return boolean -- True if excluded
+	@param name string -- Class name to check
+	@return boolean -- True if matches any pattern
 ]=]
-local function matchesExclusionPattern(name: string): boolean
+local function matchesPattern(name: string): boolean
 	for _, pattern in EXCLUDE_PATTERNS do
 		if string.find(name, pattern) then
 			return true
@@ -55,94 +43,82 @@ local function matchesExclusionPattern(name: string): boolean
 end
 
 --[=[
-	@private
-	Checks if class should be included in output.
+	Extracts boolean tag names from tag dictionary.
 
-	@param tags -- Normalized class tags
-	@param name -- Class name
-	@return boolean -- True if should be included
-]=]
-local function shouldInclude(tags: { [string]: any }, name: string): boolean
-	return tags.NotCreatable and not tags.Service and not matchesExclusionPattern(name)
-end
+	Filters tags to only include those with value `true`,
+	returning sorted array of tag names.
 
---[=[
-	@private
-	Extracts tag names from normalized tag map.
-
-	@param tags -- Normalized tag map
-	@return { string } -- Sorted array of tag names
+	@param tags table -- Tag dictionary
+	@return table -- Sorted array of tag names
 ]=]
 local function extractTagNames(tags: { [string]: any }): { string }
-	local result: { string }
+	local tagNames: { string } = {}
 
-	result = {}
-	for tag, value in tags do
-		if value == true then
-			table.insert(result, tag)
+	for tagName, tagValue in tags do
+		if tagValue == true then
+			table.insert(tagNames, tagName)
 		end
 	end
-	table.sort(result)
-	return result
+
+	table.sort(tagNames)
+	return tagNames
 end
 
 --[=[
-	@private
-	Collects NotCreatable classes from API dump.
+	Compares two ClassInfo records for sorting.
 
-	@param api -- API dump
-	@return { ClassInfo } -- Class info list sorted by name
+	@param a ClassInfo -- First class
+	@param b ClassInfo -- Second class
+	@return boolean -- True if a should come before b
 ]=]
-local function collectClasses(api: lib.ApiDump): { ClassInfo }
-	local result: { ClassInfo }
-	local ok: boolean
-	local tags: any
+local function compareClasses(a: ClassInfo, b: ClassInfo): boolean
+	return a.name < b.name
+end
 
-	result = {}
+local NotCreatable = {}
+
+--[=[
+	Finds NotCreatable classes excluding common patterns.
+
+	Filters to non-Service classes that don't match base type patterns,
+	representing classes only obtainable through engine APIs.
+
+	@param hash string? -- Optional version hash (latest if nil)
+]=]
+function NotCreatable.run(hash: string?): ()
+	local api = Lib.fetch(hash)
+
+	-- Processing
+
+	local classes: { ClassInfo } = {}
 
 	for _, class in api.Classes do
-		ok, tags = pcall(lib.tags, class.Tags)
-		if not ok then
-			lib.warn(`Error processing {class.Name}: {tags}`)
+		local tags = Lib.tags(class.Tags)
+		local isNotCreatable = tags.NotCreatable == true
+		local isService = tags.Service == true
+		local matchesExclusion = matchesPattern(class.Name)
+
+		if not (isNotCreatable and not isService and not matchesExclusion) then
 			continue
 		end
 
-		if shouldInclude(tags, class.Name) then
-			table.insert(result, {
-				name = class.Name,
-				isService = tags.Service == true,
-				tags = extractTagNames(tags),
-			})
-		end
+		local tagNames = extractTagNames(tags)
+		local classInfo: ClassInfo = {
+			name = class.Name,
+			isService = isService,
+			tags = tagNames,
+		}
+		table.insert(classes, classInfo)
 	end
 
-	-- Sort for deterministic output
-	table.sort(result, function(a, b)
-		return a.name < b.name
-	end)
+	-- Sorting
 
-	return result
+	table.sort(classes, compareClasses)
+
+	-- Output
+
+	Lib.json("not-creatable", Lib.output(hash, classes))
+	Lib.success(#classes, "NotCreatable classes")
 end
 
--- Public API
-
---[=[
-	Runs NotCreatable analysis on API dump.
-
-	@param hash -- Optional version hash
-	@error Throws if analysis fails
-]=]
-function NotCreatable.run(hash: string?)
-	local api: lib.ApiDump
-	local classes: { ClassInfo }
-
-	api = lib.fetch(hash)
-	classes = collectClasses(api)
-
-	lib.json("not-creatable", lib.output(hash, classes))
-
-	lib.success(#classes, "NotCreatable classes")
-end
-
--- Entry Point
-lib.runCli(NotCreatable.run, Process.args)
+Lib.runCli(NotCreatable.run, Process.args)

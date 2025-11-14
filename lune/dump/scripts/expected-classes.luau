@@ -3,131 +3,98 @@
 --[=[
 	@class ExpectedClasses
 
-	Identifies properties expecting specific class types.
+	Identifies properties with specific class type expectations.
 
-	Finds serializable properties with ValueType.Category == "Class"
-	and ValueType.Name != "Instance". These properties expect specific
-	class types during serialization.
-
-	Output: Array of properties with class, property name, and expected type.
+	Finds serializable properties typed to specific Instance subclasses
+	(not generic Instance), indicating typed references that may require
+	validation or special handling during serialization.
 ]=]
 
--- Imports
 local Process = require("@lune/process")
-local lib = require("../lib")
+local Lib = require("../lib")
 
--- Type Definitions
+-- Constants
 
---[=[
-	@class Property
-	Class-typed property information.
-]=]
-type Property = {
+local MEMBER_TYPE_PROPERTY = "Property"
+local CATEGORY_CLASS = "Class"
+local BASE_INSTANCE_CLASS = "Instance"
+
+-- Types
+
+type PropertyInfo = {
 	class: string,
 	property: string,
 	expected: string,
 }
 
--- Module Table
+-- Helpers
+
+--[=[
+	Compares two PropertyInfo records for sorting.
+
+	@param a PropertyInfo -- First property
+	@param b PropertyInfo -- Second property
+	@return boolean -- True if a should come before b
+]=]
+local function compareProperties(a: PropertyInfo, b: PropertyInfo): boolean
+	if a.class == b.class then
+		return a.property < b.property
+	end
+	return a.class < b.class
+end
+
 local ExpectedClasses = {}
 
--- Private Helpers
-
 --[=[
-	@private
-	Checks if property expects a specific class type.
+	Finds properties expecting specific class types.
 
-	Returns true for properties that:
-	- Can be saved and loaded
-	- Have Category "Class"
-	- Expect something more specific than "Instance"
+	Identifies properties with specific Instance subclass requirements
+	(not generic Instance), indicating typed references.
 
-	@param valueType -- Value type info
-	@param serialization -- Serialization info
-	@return boolean -- True if expects specific class
+	@param hash string? -- Optional version hash (latest if nil)
 ]=]
-local function expectsSpecificClass(valueType: lib.ValueType, serialization: lib.Serialization): boolean
-	return serialization.CanLoad and serialization.CanSave and valueType.Category == "Class" and valueType.Name ~= "Instance"
-end
+function ExpectedClasses.run(hash: string?): ()
+	local api = Lib.fetch(hash)
 
---[=[
-	@private
-	Processes member for class type expectations.
+	-- Processing
 
-	@param className -- Class name
-	@param member -- Member to process
-	@param props -- Properties list
-]=]
-local function processMember(className: string, member: lib.Member, props: { Property })
-	-- Only process properties with value type and serialization info
-	if member.MemberType ~= "Property" or not member.ValueType or not member.Serialization then
-		return
-	end
-
-	if not expectsSpecificClass(member.ValueType, member.Serialization) then
-		return
-	end
-
-	table.insert(props, {
-		class = className,
-		property = member.Name,
-		expected = member.ValueType.Name,
-	})
-end
-
---[=[
-	@private
-	Collects class-typed properties from API dump.
-
-	@param api -- API dump
-	@return { Property } -- Property list sorted by class then property
-]=]
-local function collectProperties(api: lib.ApiDump): { Property }
-	local props: { Property }
-	local ok: boolean
-	local err: any
-
-	props = {}
+	local properties: { PropertyInfo } = {}
 
 	for _, class in api.Classes do
 		for _, member in class.Members do
-			ok, err = pcall(processMember, class.Name, member, props)
-			if not ok then
-				lib.warn(`Error processing {class.Name}.{member.Name}: {err}`)
+			local isProperty = member.MemberType == MEMBER_TYPE_PROPERTY
+			local hasValueType = member.ValueType ~= nil
+			local hasSerializationInfo = member.Serialization ~= nil
+
+			if not (isProperty and hasValueType and hasSerializationInfo) then
+				continue
+			end
+
+			local valueType = member.ValueType
+			local serialization = member.Serialization
+			local isSerializable = serialization.CanLoad and serialization.CanSave
+			local isClassType = valueType.Category == CATEGORY_CLASS
+			local isSpecificClass = valueType.Name ~= BASE_INSTANCE_CLASS
+
+			if isSerializable and isClassType and isSpecificClass then
+				local propInfo: PropertyInfo = {
+					class = class.Name,
+					property = member.Name,
+					expected = valueType.Name,
+				}
+				table.insert(properties, propInfo)
 			end
 		end
 	end
 
-	-- Sort for deterministic output
-	table.sort(props, function(a, b)
-		if a.class == b.class then
-			return a.property < b.property
-		end
-		return a.class < b.class
-	end)
+	-- Sorting
 
-	return props
+	table.sort(properties, compareProperties)
+
+	-- Output
+
+	Lib.json("expected-classes", Lib.output(hash, properties))
+	Lib.success(#properties, "class-typed properties")
 end
 
--- Public API
-
---[=[
-	Runs expected classes analysis on API dump.
-
-	@param hash -- Optional version hash
-	@error Throws if analysis fails
-]=]
-function ExpectedClasses.run(hash: string?)
-	local api: lib.ApiDump
-	local props: { Property }
-
-	api = lib.fetch(hash)
-	props = collectProperties(api)
-
-	lib.json("expected-classes", lib.output(hash, props))
-
-	lib.success(#props, "class-typed properties")
-end
-
--- Entry Point
-lib.runCli(ExpectedClasses.run, Process.args)
+Lib.runCli(ExpectedClasses.run, Process.args)
