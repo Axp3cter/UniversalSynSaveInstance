@@ -13,6 +13,13 @@
 local Process = require("@lune/process")
 local Lib = require("../lib")
 
+-- Constants
+
+local MEMBER_TYPE_PROPERTY = "Property"
+local PLACEHOLDER_PREFIX = "__api_dump_"
+
+-- Types
+
 type AsymmetricProperty = {
 	type: "asymmetric",
 	class: string,
@@ -32,96 +39,164 @@ type NotCreatableDefault = {
 
 type Property = AsymmetricProperty | NotCreatableDefault
 
-local InterestingProperties = {}
+type PropertyData = {
+	default: string?,
+	tags: { [string]: any },
+}
 
+type ClassData = {
+	tags: { [string]: any },
+	props: { [string]: PropertyData },
+}
+
+-- Helpers
+
+--[=[
+	Checks if a default value is a placeholder.
+
+	Placeholder values contain the prefix "__api_dump_" and don't
+	represent actual runtime defaults.
+
+	@param value string? -- Default value to check
+	@return boolean -- True if placeholder or nil
+]=]
 local function isPlaceholder(value: string?): boolean
 	if not value then
 		return true
 	end
-	return string.find(value, "__api_dump_", 1, true) ~= nil
+	return string.find(value, PLACEHOLDER_PREFIX, 1, true) ~= nil
 end
+
+--[=[
+	Compares two Property records for sorting.
+
+	@param a Property -- First property
+	@param b Property -- Second property
+	@return boolean -- True if a should come before b
+]=]
+local function compareProperties(a: Property, b: Property): boolean
+	if a.class == b.class then
+		return a.property < b.property
+	end
+	return a.class < b.class
+end
+
+local InterestingProperties = {}
 
 --[=[
 	Analyzes properties for asymmetric serialization and defaults.
 
+	Two-pass processing: first identifies asymmetric serialization patterns,
+	then finds NotCreatable classes with meaningful defaults.
+
 	@param hash string? -- Optional version hash (latest if nil)
 ]=]
-function InterestingProperties.run(hash: string?)
+function InterestingProperties.run(hash: string?): ()
 	local api = Lib.fetch(hash)
-	local classProps = {}
-	local results = {}
+
+	-- Processing: Pass 1 - Build class metadata and find asymmetric properties
+
+	local classMetadata: { [string]: ClassData } = {}
+	local properties: { Property } = {}
 
 	for _, class in api.Classes do
 		local classTags = Lib.tags(class.Tags)
-		classProps[class.Name] = { tags = classTags, props = {} }
+		classMetadata[class.Name] = {
+			tags = classTags,
+			props = {},
+		}
 
 		for _, member in class.Members do
-			if member.MemberType == "Property" and member.Serialization then
-				local tags = Lib.tags(member.Tags)
-				local ser = member.Serialization
+			local isProperty = member.MemberType == MEMBER_TYPE_PROPERTY
+			local hasSerializationInfo = member.Serialization ~= nil
 
-				classProps[class.Name].props[member.Name] = {
-					default = member.Default,
-					tags = tags,
+			if not (isProperty and hasSerializationInfo) then
+				continue
+			end
+
+			local memberTags = Lib.tags(member.Tags)
+			local serialization = member.Serialization
+
+			-- Store property metadata for pass 2
+			classMetadata[class.Name].props[member.Name] = {
+				default = member.Default,
+				tags = memberTags,
+			}
+
+			-- Check for asymmetric serialization or deprecated saveable
+			local canLoad = serialization.CanLoad
+			local canSave = serialization.CanSave
+			local isDeprecated = memberTags.Deprecated == true
+
+			if not (canLoad or canSave) then
+				continue
+			end
+
+			local reason: string? = nil
+			if canLoad and not canSave then
+				reason = "CanLoad only"
+			elseif canSave and not canLoad then
+				reason = "CanSave only"
+			elseif isDeprecated and canSave then
+				reason = "Deprecated but saveable"
+			end
+
+			if reason then
+				local asymmetricProp: AsymmetricProperty = {
+					type = "asymmetric",
+					class = class.Name,
+					property = member.Name,
+					reason = reason,
+					canSave = canSave,
+					canLoad = canLoad,
+					deprecated = if isDeprecated then true else nil,
 				}
-
-				if ser.CanLoad or ser.CanSave then
-					local reason = nil
-					if ser.CanLoad and not ser.CanSave then
-						reason = "CanLoad only"
-					elseif ser.CanSave and not ser.CanLoad then
-						reason = "CanSave only"
-					elseif tags.Deprecated and ser.CanSave then
-						reason = "Deprecated but saveable"
-					end
-
-					if reason then
-						table.insert(results, {
-							type = "asymmetric",
-							class = class.Name,
-							property = member.Name,
-							reason = reason,
-							canSave = ser.CanSave,
-							canLoad = ser.CanLoad,
-							deprecated = if tags.Deprecated then true else nil,
-						})
-					end
-				end
+				table.insert(properties, asymmetricProp)
 			end
 		end
 	end
 
-	local asymmetricCount = #results
+	local asymmetricCount = #properties
 
-	for className, data in classProps do
-		if data.tags.NotCreatable then
-			for propName, propData in data.props do
-				if not isPlaceholder(propData.default) then
-					table.insert(results, {
-						type = "notCreatableDefault",
-						class = className,
-						property = propName,
-						default = propData.default,
-					})
-				end
+	-- Processing: Pass 2 - Find NotCreatable defaults
+
+	for className, classData in classMetadata do
+		local isNotCreatable = classData.tags.NotCreatable == true
+
+		if not isNotCreatable then
+			continue
+		end
+
+		for propertyName, propertyData in classData.props do
+			if not isPlaceholder(propertyData.default) then
+				local defaultProp: NotCreatableDefault = {
+					type = "notCreatableDefault",
+					class = className,
+					property = propertyName,
+					default = propertyData.default :: string,
+				}
+				table.insert(properties, defaultProp)
 			end
 		end
 	end
 
-	table.sort(results, function(a, b)
-		if a.class == b.class then
-			return a.property < b.property
-		end
-		return a.class < b.class
-	end)
+	-- Sorting
+
+	table.sort(properties, compareProperties)
+
+	-- Output
 
 	local breakdown = {
 		asymmetric = asymmetricCount,
-		notCreatableDefault = #results - asymmetricCount,
+		notCreatableDefault = #properties - asymmetricCount,
 	}
 
-	Lib.json("interesting-properties", Lib.output(hash, results, breakdown))
-	Lib.success(#results, "interesting properties", `{breakdown.asymmetric} asymmetric, {breakdown.notCreatableDefault} NotCreatable defaults`)
+	Lib.json("interesting-properties", Lib.output(hash, properties, breakdown))
+	Lib.success(
+		#properties,
+		"interesting properties",
+		`{breakdown.asymmetric} asymmetric, {breakdown.notCreatableDefault} NotCreatable defaults`
+	)
 end
 
 Lib.runCli(InterestingProperties.run, Process.args)
